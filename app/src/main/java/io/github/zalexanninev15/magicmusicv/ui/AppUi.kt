@@ -568,10 +568,6 @@ private fun SetupTab(
                 }
             }
         }
-        Text(
-            "Also written to Android/data/<package>/files/haptics-report.txt",
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 }
 

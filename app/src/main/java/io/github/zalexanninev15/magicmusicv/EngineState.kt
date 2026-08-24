@@ -28,6 +28,34 @@ enum class AppTheme { DARK, LIGHT }
  */
 object EngineState {
 
+    private const val PREFS = "magicmusicv"
+
+    /**
+     * The one place defaults live. Reset, first launch and a failed settings import all
+     * read from here, so they cannot drift apart.
+     *
+     * Declared first, and it has to stay first: every MutableStateFlow below is initialised
+     * from it, and Kotlin runs property initialisers in source order. Moved to the bottom of
+     * the object — where it reads more naturally — each of those flows sees an uninitialised
+     * DEFAULTS and the build fails.
+     */
+    val DEFAULTS = SettingsSnapshot(
+        mode = Mode.HYBRID,
+        source = SourceKind.PLAYBACK_CAPTURE,
+        intensity = 0.8f,
+        sensitivity = 1.5f,
+        offsetMs = 0,
+        bandLow = true,
+        bandMid = true,
+        bandHigh = true,
+        effectLow = 2,      // EFFECT_MODERATE_SHORT_VIBRATE_ONCE
+        effectMid = 1,      // EFFECT_WEAK_SHORT_VIBRATE_ONCE
+        effectHigh = 0,     // EFFECT_WEAKEST_SHORT_VIBRATE_ONCE
+        bypassSystemScaling = false,
+        backendChoice = BackendChoice.AUTO,
+        theme = AppTheme.DARK,
+    )
+
     // --- live engine readings, never persisted ---
     val running = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
@@ -135,27 +163,4 @@ object EngineState {
 
     private fun <T : Enum<T>> enumOr(raw: String?, values: List<T>, fallback: T): T =
         values.firstOrNull { it.name == raw } ?: fallback
-
-    private const val PREFS = "magicmusicv"
-
-    /**
-     * The one place defaults live. Reset, first launch and a failed settings import all
-     * read from here, so they cannot drift apart.
-     */
-    val DEFAULTS = SettingsSnapshot(
-        mode = Mode.HYBRID,
-        source = SourceKind.PLAYBACK_CAPTURE,
-        intensity = 0.8f,
-        sensitivity = 1.5f,
-        offsetMs = 0,
-        bandLow = true,
-        bandMid = true,
-        bandHigh = true,
-        effectLow = 2,      // EFFECT_MODERATE_SHORT_VIBRATE_ONCE
-        effectMid = 1,      // EFFECT_WEAK_SHORT_VIBRATE_ONCE
-        effectHigh = 0,     // EFFECT_WEAKEST_SHORT_VIBRATE_ONCE
-        bypassSystemScaling = false,
-        backendChoice = BackendChoice.AUTO,
-        theme = AppTheme.DARK,
-    )
 }
