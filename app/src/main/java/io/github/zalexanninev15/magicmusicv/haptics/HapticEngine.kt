@@ -26,9 +26,6 @@ enum class HapticTier { FULL, PARTIAL, VENDOR_ONLY, NONE }
 
 enum class Backend { AOSP, OPLUS }
 
-/** What the user asked for. AUTO is the default and should stay that way. */
-enum class BackendChoice { AUTO, AOSP, OPLUS }
-
 /**
  * Single source of truth for turning a choice into a backend, shared by the engine, the
  * service and the UI so they can never disagree about which path is running.
