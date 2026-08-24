@@ -1,12 +1,14 @@
 # Magic Music V
 
-Android app that **taps** the vibration motor in time with whatever music is playing —
-discrete, graded knocks, not a continuous buzz.
+![platform](https://img.shields.io/badge/platform-Android_15.0%2B*-3DDC84.svg?logo=android)
+![version](https://img.shields.io/badge/version-0.2.0_alpha-orange)
+![license](https://img.shields.io/badge/license-MIT-blue)
 
-**Built for OnePlus and realme first.** Those phones (and their OPPO siblings) ship X-axis
-linear actuators with the full `VibrationEffect.Composition` primitive set, which is the
-only hardware that can actually do what this app is for. Everything else is best-effort.
-Developed against a OnePlus 15.
+Android app that **taps** the vibration motor in time with whatever music is playing —
+discrete, graded knocks, not a continuous buzz. **Magic Music V** for creating pleasant tactile feedback when playing music and videos (and in the future). It focuses on devices with the best vibration functions. Other devices from different brands are accepted. Perhaps in the future, there will be support not only for Android smartphones, but also for other devices with tactile response or something similar.
+
+> [!NOTE]
+> **Built for OnePlus and realme first.** Those phones (and their OPPO siblings) ship X-axis linear actuators with the full `VibrationEffect.Composition` primitive set, which is the only hardware that can actually do what this app is for. Everything else is best-effort. First developed for OnePlus 15, There are plans to test on an old device - the Realme GT Neo 3.
 
 ---
 
@@ -72,7 +74,7 @@ HAL and hold their spacing while the UI thread is busy.
 
 ---
 
-## OnePlus / realme / OPPO notes
+## OnePlus / realme notes
 
 These three are the same OPLUS platform underneath, and they need handling AOSP doesn't.
 
@@ -98,7 +100,7 @@ tier you're on:
 
 | tier | hardware | behaviour |
 |---|---|---|
-| FULL | X-axis LRA — OnePlus flagships & Nord high end, realme GT/Pro, OPPO Find/Reno | what the app is designed for |
+| FULL | X-axis LRA — OnePlus flagships & Nord high end, realme GT/Pro | what the app is designed for |
 | PARTIAL | Z-axis LRA, no `THUD` | kicks fall back to `CLICK`, thinner |
 | NONE | rotary ERM — realme C/Narzo, some Nord N | physically cannot tap; you get a buzz |
 
@@ -123,14 +125,13 @@ transients — the only thing this app measures.
 
 ## Build
 
-CI builds it: push to `main`, grab the APK from the workflow artifact. Tag `v0.2.0` and it
-also gets attached to a GitHub release.
+The application is built automatically when you commit to the repository, you can download it from Actions, then the name of the build (look for a successful one, with a check mark) and there will be a ZIP archive with the APK installer at the bottom.
 
 The APK is **debug-signed** on purpose — a personal-use app doesn't need a keystore in
 repo secrets. For signed releases, add a `signingConfigs` block to `app/build.gradle.kts`
 and feed it a base64 keystore from secrets.
 
-Locally:
+Local APK Build:
 
 ```bash
 gradle wrapper --gradle-version 8.11.1   # once, generates ./gradlew
@@ -138,15 +139,14 @@ gradle wrapper --gradle-version 8.11.1   # once, generates ./gradlew
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-JDK 17, Android SDK 36. `gradle-wrapper.jar` isn't committed because it's a binary; CI
-uses `gradle/actions/setup-gradle` instead.
-
-`applicationId` is `io.github.zalexanninev15.magicmusicv`; debug builds get a `.debug`
-suffix so both can sit on the phone at once.
+Tools: JDK 17, Android SDK 36. `gradle-wrapper.jar` isn't committed because it's a binary.
 
 ---
 
 ## Tuning notes
+
+> [!NOTE]
+> The current settings that the application sets immediately are the most optimal from the entry-level point of view. However, I recommend that you adjust the audio to your perception of the sound.
 
 - **Sensitivity** scales the adaptive threshold. ~1.3 for sparse electronic, 1.8–2.2 for
   dense mixes. Too low and taps run together into vibration, which defeats the point.
@@ -154,6 +154,7 @@ suffix so both can sit on the phone at once.
   ±50 ms window; inside it, taps read as *part of* the music rather than a response to it.
 - Rate limiting is per band (80 / 55 / 40 ms minimum gap). Raise it first if the motor
   starts heating.
+- At startup, it is recommended that you choose not to broadcast the entire screen, but only the application in which the content is being played. This does not exclude accidental events at this stage of development, but it significantly increases the efficiency of the application.
 
 ## Known limits
 
@@ -164,7 +165,3 @@ suffix so both can sit on the phone at once.
   confidence below the lock threshold; use Onsets mode there.
 - `Vibrator.getCompositionSizeMax()` isn't public API, so batches are capped at 8
   primitives and `compose()` is wrapped in try/catch.
-
-## License
-
-MIT.
