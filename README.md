@@ -1,7 +1,7 @@
 # Magic Music V
 
 ![platform](https://img.shields.io/badge/platform-Android_12%2B*-3DDC84.svg?logo=android)
-![version](https://img.shields.io/badge/version-0.2.0_alpha-orange)
+![version](https://img.shields.io/badge/version-0.3.0_alpha-orange)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 Android app that **taps** the vibration motor in time with whatever music is playing —
@@ -104,7 +104,7 @@ tier you're on:
 
 | tier | hardware | behaviour |
 |---|---|---|
-| FULL | X-axis LRA — OnePlus flagships & Nord high end, realme GT/Pro | what the app is designed for |
+| FULL | X-axis LRA — OnePlus flagships & Nord high end, realme GT/Pro | I'm trying to implement it, it's not about other devices |
 | PARTIAL | Z-axis LRA, no `THUD` | kicks fall back to `CLICK`, thinner |
 | NONE | rotary ERM — realme C/Narzo, some Nord N | physically cannot tap; you get a buzz |
 
