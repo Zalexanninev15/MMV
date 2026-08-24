@@ -28,6 +28,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MagicMusicV">
 
+        <!-- Present natively on OnePlus/realme/OPPO ROMs; required=false so the APK still
+             installs and runs everywhere else. Gives OplusHaptics a chance to resolve
+             com.oplus.os.LinearmotorVibrator / WaveformEffect by reflection. -->
+        <uses-library
+            android:name="oplus"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

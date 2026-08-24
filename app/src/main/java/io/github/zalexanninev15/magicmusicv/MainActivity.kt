@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -14,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.haptics.HapticEngine
+import io.github.zalexanninev15.magicmusicv.haptics.OplusHaptics
 import io.github.zalexanninev15.magicmusicv.service.HapticService
 import io.github.zalexanninev15.magicmusicv.ui.MagicMusicScreen
 
@@ -46,6 +48,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         engine = HapticEngine(this)
         EngineState.load(this)
+
+        // Runs once, costs a few reflection lookups, and is the only way to find out what
+        // this particular ColorOS build exposes. `adb logcat -s OplusHaptics` prints it.
+        OplusHaptics.probe(this)
+        Log.i("MagicMusicV", OplusHaptics.describe())
 
         setContent {
             MagicMusicScreen(
