@@ -124,6 +124,13 @@ class HapticService : Service() {
 
     private fun applySettings() {
         engine.intensity = EngineState.intensity.value
+        engine.applyChoice(EngineState.backendChoice.value)
+        engine.oplusEffects = intArrayOf(
+            EngineState.effectLow.value,
+            EngineState.effectMid.value,
+            EngineState.effectHigh.value,
+        )
+        engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
         detector.sensitivity = EngineState.sensitivity.value
         detector.bandEnabled = booleanArrayOf(
             EngineState.bandLow.value,

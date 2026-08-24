@@ -6,20 +6,17 @@ import android.util.Log
 import java.lang.reflect.Method
 
 /**
- * Optional backend that talks to OPLUS's own haptic service instead of AOSP's Vibrator.
+ * OPLUS `LinearmotorVibrator` backend.
  *
- * "O-Haptics" at the API level is a `LinearmotorVibrator` system service plus a
- * `WaveformEffect` type living in the `oplus` shared library — alongside, not inside, the
- * AOSP framework. Names and signatures have moved between ColorOS releases, so nothing is
- * hardcoded: [probe] discovers what exists and records why each step failed.
+ * On a OnePlus 15 (OxygenOS 16) this is not an optional extra — it is the only working
+ * path. `Vibrator.arePrimitivesSupported()` returns false for all eight AOSP primitives
+ * and `areEnvelopeEffectsSupported()` is false, because OPLUS never implemented the AOSP
+ * compose HAL. Their whole haptic library lives behind `com.oplus.os.WaveformEffect`
+ * instead, keyed by a few hundred integer effect ids.
  *
- * Every step is independent on purpose. An earlier version returned as soon as the system
- * service came back null, which meant the report said nothing on exactly the devices where
- * you most need to know what went wrong.
- *
- * Trade-off before switching this on: the OPLUS API fires one prebaked effect at a time and
- * has no equivalent of `VibrationEffect.Composition`'s per-primitive delay, so the batched
- * HAL-timed scheduling behind Beat and Hybrid modes is lost. It suits Onsets mode.
+ * What that costs: an OPLUS effect fires immediately and there is no equivalent of
+ * `VibrationEffect.Composition`'s per-primitive delay, so scheduled taps have to be timed
+ * in-process. See [HapticEngine] for how that is handled.
  */
 object OplusHaptics {
 
@@ -29,9 +26,12 @@ object OplusHaptics {
     private var serviceName: String? = null
     private var builderClass: Class<*>? = null
     private var effectClass: Class<*>? = null
+
     private var setEffectType: Method? = null
-    private var setStrength: Method? = null
+    private var setEffectStrength: Method? = null
     private var setAsynchronous: Method? = null
+    private var setStrengthSettingEnabled: Method? = null
+    private var setUsageHint: Method? = null
     private var build: Method? = null
     private var vibrateMethod: Method? = null
 
@@ -41,110 +41,125 @@ object OplusHaptics {
     var available: Boolean = false
         private set
 
-    /** Effect constants this ROM exposes, name to value. Empty until [probe] runs. */
+    /** All int constants the ROM exposes, name to value. */
     var effectConstants: Map<String, Int> = emptyMap()
         private set
 
-    private val serviceNames = listOf(
-        "linearmotor",
-        "oplus_linearmotor",
-        "linearmotor_vibrator",
-        "LinearmotorVibratorService",
-    )
+    /** Only the ones plausibly usable as a single short tap, in report order. */
+    var tapCandidates: List<Pair<String, Int>> = emptyList()
+        private set
 
+    var strengthLight = 0; private set
+    var strengthMedium = 1; private set
+    var strengthStrong = 2; private set
+
+    private val serviceNames = listOf(
+        "linearmotor", "oplus_linearmotor", "linearmotor_vibrator", "LinearmotorVibratorService",
+    )
     private val vibratorClassNames = listOf(
         "com.oplus.os.LinearmotorVibrator",
         "android.os.LinearmotorVibrator",
         "com.oplus.os.OplusLinearmotorVibrator",
     )
-
     private val effectClassNames = listOf(
         "com.oplus.os.WaveformEffect",
         "android.os.WaveformEffect",
         "com.oplus.os.OplusWaveformEffect",
     )
 
-    /** Safe on any device; leaves the object inert on anything that is not an OPLUS ROM. */
+    /**
+     * Effect families that are single short impulses. Everything named after a ringtone,
+     * alarm or notification tune is a multi-second pattern choreographed to a melody —
+     * firing one of those per onset would overlap itself into mush.
+     */
+    private val tapPrefixes = listOf(
+        "EFFECT_WEAKEST_SHORT_VIBRATE_ONCE",
+        "EFFECT_WEAK_SHORT_VIBRATE_ONCE",
+        "EFFECT_MODERATE_SHORT_VIBRATE_ONCE",
+        "EFFECT_OTHER_KEYBOARD_",
+        "EFFECT_RAZER_",
+        "EFFECT_EMULATION_KEYBOARD_",
+        "EFFECT_WEAK_EMULATION_KEYBOARD_",
+        "EFFECT_GAME_CUSTOM_VIBRATION_",
+        "EFFECT_PUBG_",
+        "EFFECT_CUSTOMIZED_WEAK_GRANULAR",
+        "EFFECT_CUSTOMIZED_STRONG_GRANULAR",
+        "EFFECT_OTHER_BIG_SCALE",
+        "EFFECT_OTHER_SMALL_SCALE",
+        "EFFECT_VIRTUAL_KEY_FEEDBACK",
+        "EFFECT_RECENT_TASK_FEEDBACK",
+        "EFFECT_OTHER_COMPLETE",
+        "EFFECT_OTHER_ELASTICITY",
+        "EFFECT_OTHER_WATERRIPPLE",
+    )
+
     fun probe(context: Context): Boolean {
         notes.clear()
         available = false
-        service = null
-        serviceName = null
-        effectClass = null
-        builderClass = null
-        effectConstants = emptyMap()
+        service = null; serviceName = null
+        effectClass = null; builderClass = null
+        effectConstants = emptyMap(); tapCandidates = emptyList()
 
         notes += "device: ${Build.MANUFACTURER} ${Build.MODEL} / ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})"
-        notes += "fingerprint: ${Build.FINGERPRINT}"
 
-        // Is the oplus shared library even visible to this process?
-        val libs = runCatching { context.packageManager.systemSharedLibraryNames?.toList() }
-            .getOrNull()
-            .orEmpty()
-        notes += "shared libs containing 'oplus': " +
-            (libs.filter { it.contains("oplus", true) }.ifEmpty { listOf("(none)") }.joinToString())
-
-        // Class lookup runs regardless of whether the service resolves — the constants are
-        // useful on their own, and a class-not-found is a different problem than a
-        // service-not-found.
         val loaders = listOfNotNull(
-            context.classLoader,
-            javaClass.classLoader,
-            ClassLoader.getSystemClassLoader(),
+            context.classLoader, javaClass.classLoader, ClassLoader.getSystemClassLoader(),
         )
 
-        for (name in vibratorClassNames) {
-            val c = findClass(name, loaders)
-            if (c != null) {
-                notes += "vibrator class found: $name"
-                break
-            }
-        }
+        vibratorClassNames.firstOrNull { findClass(it, loaders) != null }
+            ?.let { notes += "vibrator class: $it" }
 
         effectClass = effectClassNames.firstNotNullOfOrNull { name ->
-            findClass(name, loaders)?.also { notes += "effect class found: $name" }
+            findClass(name, loaders)?.also { notes += "effect class: $name" }
         }
-        if (effectClass == null) notes += "effect class: NOT FOUND (tried ${effectClassNames.joinToString()})"
+        if (effectClass == null) notes += "effect class: NOT FOUND"
 
         effectClass?.let { effect ->
             builderClass = effect.declaredClasses.firstOrNull { it.simpleName == "Builder" }
                 ?: findClass("${effect.name}\$Builder", loaders)
-            notes += if (builderClass != null) "builder: ${builderClass!!.name}" else "builder: NOT FOUND"
 
             effectConstants = effect.fields
-                .filter {
-                    it.type == Int::class.javaPrimitiveType &&
-                        (it.name.startsWith("EFFECT_") || it.name.startsWith("STRENGTH_") ||
-                            it.name.startsWith("TYPE_"))
-                }
+                .filter { it.type == Int::class.javaPrimitiveType }
                 .mapNotNull { f -> runCatching { f.name to f.getInt(null) }.getOrNull() }
                 .toMap()
-            notes += "int constants harvested: ${effectConstants.size}"
+
+            strengthLight = effectConstants["STRENGTH_LIGHT"] ?: 0
+            strengthMedium = effectConstants["STRENGTH_MEDIUM"] ?: 1
+            strengthStrong = effectConstants["STRENGTH_STRONG"] ?: 2
+
+            tapCandidates = effectConstants
+                .filter { (k, _) -> k.startsWith("EFFECT_") && tapPrefixes.any { k.startsWith(it) } }
+                .toList()
+                .sortedBy { it.second }
+            notes += "constants: ${effectConstants.size}, tap candidates: ${tapCandidates.size}"
         }
 
         builderClass?.let { b ->
-            setEffectType = b.methods.firstOrNull {
-                it.name == "setEffectType" && it.parameterTypes.size == 1 &&
-                    it.parameterTypes[0] == Int::class.javaPrimitiveType
-            }
-            setStrength = b.methods.firstOrNull { it.name == "setStrength" && it.parameterTypes.size == 1 }
-            setAsynchronous = b.methods.firstOrNull { it.name == "setAsynchronous" && it.parameterTypes.size == 1 }
+            setEffectType = one(b, "setEffectType")
+            setEffectStrength = one(b, "setEffectStrength")
+            setAsynchronous = one(b, "setAsynchronous")
+            setStrengthSettingEnabled = one(b, "setStrengthSettingEnabled")
+            setUsageHint = one(b, "setUsageHint")
             build = b.methods.firstOrNull { it.name == "build" && it.parameterTypes.isEmpty() }
-            notes += "builder methods: " + b.methods.map { it.name }.distinct().sorted().joinToString()
+            notes += "builder signatures:"
+            b.declaredMethods.sortedBy { it.name }.forEach { m ->
+                if (m.name.startsWith("set") || m.name == "build") {
+                    notes += "  ${m.name}(${m.parameterTypes.joinToString { it.simpleName }})"
+                }
+            }
         }
 
         for (name in serviceNames) {
-            val svc = runCatching { context.getSystemService(name) }.getOrNull()
-            if (svc != null) {
-                service = svc
-                serviceName = name
-                notes += "system service '$name' -> ${svc.javaClass.name}"
-                notes += "service methods: " +
-                    svc.javaClass.methods.map { it.name }.distinct().sorted().joinToString()
-                break
+            val svc = runCatching { context.getSystemService(name) }.getOrNull() ?: continue
+            service = svc; serviceName = name
+            notes += "service '$name' -> ${svc.javaClass.name}"
+            notes += "service signatures:"
+            svc.javaClass.declaredMethods.sortedBy { it.name }.forEach { m ->
+                notes += "  ${m.name}(${m.parameterTypes.joinToString { it.simpleName }}) : ${m.returnType.simpleName}"
             }
+            break
         }
-        if (service == null) notes += "system service: NOT FOUND (tried ${serviceNames.joinToString()})"
+        if (service == null) notes += "service: NOT FOUND"
 
         val svc = service
         val effect = effectClass
@@ -153,65 +168,65 @@ object OplusHaptics {
                 it.name == "vibrate" && it.parameterTypes.size == 1 &&
                     it.parameterTypes[0].isAssignableFrom(effect)
             }
-            if (vibrateMethod == null) notes += "no vibrate(WaveformEffect) overload on the service"
         }
 
-        available = setEffectType != null && build != null && vibrateMethod != null &&
-            builderClass != null
+        available = setEffectType != null && build != null &&
+            vibrateMethod != null && builderClass != null
         notes += "available: $available"
         Log.i(TAG, "probe -> available=$available")
         return available
     }
 
-    private fun findClass(name: String, loaders: List<ClassLoader>): Class<*>? {
-        for (l in loaders) {
-            runCatching { Class.forName(name, false, l) }.getOrNull()?.let { return it }
-        }
-        return runCatching { Class.forName(name) }.getOrNull()
-    }
+    private fun one(c: Class<*>, name: String): Method? =
+        c.methods.firstOrNull { it.name == name && it.parameterTypes.size == 1 }
 
     /**
-     * Fires one prebaked OPLUS effect. [effectType] must come from [effectConstants] — the
-     * numbering is not stable across ColorOS releases, so don't hardcode integers copied
-     * from a forum post.
+     * Fires one effect.
+     *
+     * [bypassSystemScaling] maps to `setStrengthSettingEnabled(false)`, which on this ROM
+     * appears to detach the effect from Settings > Sounds & vibration > Vibration
+     * intensity. Worth having, because otherwise the app's own intensity slider is silently
+     * multiplied by a system slider the user forgot about.
      */
-    fun vibrate(effectType: Int, strength: Int? = null, async: Boolean = true): Boolean {
+    fun vibrate(effectType: Int, strength: Int? = null, bypassSystemScaling: Boolean = false): Boolean {
         if (!available) return false
         return runCatching {
             val b = builderClass!!.getDeclaredConstructor().newInstance()
             setEffectType!!.invoke(b, effectType)
-            strength?.let { s -> setStrength?.invoke(b, s) }
-            setAsynchronous?.invoke(b, async)
-            val effect = build!!.invoke(b)
-            vibrateMethod!!.invoke(service, effect)
+            strength?.let { setEffectStrength?.invoke(b, it) }
+            setAsynchronous?.invoke(b, true)
+            if (bypassSystemScaling) setStrengthSettingEnabled?.invoke(b, false)
+            vibrateMethod!!.invoke(service, build!!.invoke(b))
             true
         }.getOrElse {
-            Log.w(TAG, "vibrate failed, disabling backend", it)
-            available = false
+            Log.w(TAG, "vibrate($effectType) failed", it)
             false
         }
     }
 
-    /** Full report. Shown in the app and written to a file — logcat is not required. */
+    fun cancel() {
+        if (!available) return
+        runCatching { service!!.javaClass.getMethod("cancelVibrate").invoke(service) }
+    }
+
     fun describe(): String = buildString {
-        appendLine("=== Magic Music V / O-Haptics probe ===")
+        appendLine("=== O-Haptics probe ===")
         notes.forEach { appendLine(it) }
         appendLine()
         appendLine("resolved:")
-        appendLine("  service        ${service?.javaClass?.name ?: "-"} (as '${serviceName ?: "-"}')")
-        appendLine("  effect class   ${effectClass?.name ?: "-"}")
-        appendLine("  builder class  ${builderClass?.name ?: "-"}")
-        appendLine("  setEffectType  ${setEffectType != null}")
-        appendLine("  setStrength    ${setStrength != null}")
-        appendLine("  setAsync       ${setAsynchronous != null}")
-        appendLine("  vibrate        ${vibrateMethod != null}")
-        appendLine()
-        appendLine("constants (${effectConstants.size}):")
-        if (effectConstants.isEmpty()) {
-            appendLine("  (none)")
-        } else {
-            effectConstants.entries.sortedBy { it.value }
-                .forEach { (k, v) -> appendLine("  $k = $v") }
-        }
+        appendLine("  service       ${service?.javaClass?.name ?: "-"} (as '${serviceName ?: "-"}')")
+        appendLine("  effect        ${effectClass?.name ?: "-"}")
+        appendLine("  builder       ${builderClass?.name ?: "-"}")
+        appendLine("  setEffectType ${setEffectType != null}")
+        appendLine("  setStrength   ${setEffectStrength != null}")
+        appendLine("  bypassScaling ${setStrengthSettingEnabled != null}")
+        appendLine("  usageHint     ${setUsageHint != null}")
+        appendLine("  vibrate       ${vibrateMethod != null}")
+        appendLine("  available     $available")
+    }
+
+    private fun findClass(name: String, loaders: List<ClassLoader>): Class<*>? {
+        for (l in loaders) runCatching { Class.forName(name, false, l) }.getOrNull()?.let { return it }
+        return runCatching { Class.forName(name) }.getOrNull()
     }
 }

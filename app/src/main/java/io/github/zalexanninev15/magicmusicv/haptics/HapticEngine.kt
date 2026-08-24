@@ -8,33 +8,51 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import io.github.zalexanninev15.magicmusicv.core.Band
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 import kotlin.math.pow
 
 /**
- * What the device's actuator can actually do.
+ * What this device's actuator can actually be driven with.
  *
- * FULL is an X-axis linear motor with the whole primitive set — OnePlus flagships, realme
- * GT/Pro, most OPPO Find/Reno. PARTIAL is a Z-axis LRA that reports some primitives but
- * not THUD. NONE is a rotary ERM, which physically cannot produce a tap: it spins up and
- * coasts down over tens of milliseconds. That is common on realme C/Narzo and on OnePlus
- * Nord N models, and the app says so rather than pretending.
+ * VENDOR_ONLY is the OPLUS case and it is not a downgrade: OnePlus/OPPO never implemented
+ * the AOSP compose HAL, so `arePrimitivesSupported()` is false across the board even on a
+ * flagship X-axis LRA. Their effect library lives behind LinearmotorVibrator instead.
+ * Treating that as "no primitives, must be a rotor" is wrong — the hardware is fine, the
+ * AOSP path simply is not wired up.
  */
-enum class HapticTier { FULL, PARTIAL, NONE }
+enum class HapticTier { FULL, PARTIAL, VENDOR_ONLY, NONE }
+
+enum class Backend { AOSP, OPLUS }
+
+/** What the user asked for. AUTO is the default and should stay that way. */
+enum class BackendChoice { AUTO, AOSP, OPLUS }
+
+/**
+ * Single source of truth for turning a choice into a backend, shared by the engine, the
+ * service and the UI so they can never disagree about which path is running.
+ */
+fun resolveBackend(choice: BackendChoice, autoBackend: Backend, oplusAvailable: Boolean): Backend =
+    when (choice) {
+        BackendChoice.AUTO -> autoBackend
+        BackendChoice.AOSP -> Backend.AOSP
+        BackendChoice.OPLUS -> if (oplusAvailable) Backend.OPLUS else Backend.AOSP
+    }
+
+/**
+ * What the user picked, as opposed to what actually gets used.
+ *
+ * AUTO resolves from probed capability only. Deliberately not from [android.os.Build]
+ * strings: manufacturer and model are trivially rewritten on a rooted phone, and a device
+ * reporting itself as a Galaxy while running OxygenOS would pick the wrong path every
+ * time. The actuator's own answers cannot be spoofed by a build.prop edit.
+ */
+enum class BackendChoice { AUTO, AOSP, OPLUS }
 
 /** A single tap: which band fired it, how hard, and how far in the future. */
 data class Tap(val band: Band, val strength: Float, val delayMs: Int = 0)
 
-/**
- * Turns taps into vibrator calls.
- *
- * Everything here is built on [VibrationEffect.Composition] primitives rather than
- * waveforms. A primitive is a factory-tuned impulse for the device's own actuator:
- * it starts and — critically — *stops* the LRA quickly, so it lands as a knock instead
- * of the smeared buzz you get from createOneShot on an untuned duration. On hardware
- * like the OnePlus 15 that is the entire difference the app is trying to deliver.
- *
- * Scales come from the onset strength, so a kick and a hi-hat do not feel the same.
- */
 class HapticEngine(context: Context) {
 
     private val vibrator: Vibrator =
@@ -52,27 +70,82 @@ class HapticEngine(context: Context) {
     val hasLowTick get() = supported.getOrElse(2) { false }
     val hasThud get() = supported.getOrElse(3) { false }
 
-    /** True when the device can do real primitives; false means we run the fallback path. */
     val primitivesAvailable: Boolean = hasClick || hasTick || hasThud
+    val hasAmplitudeControl: Boolean = vibrator.hasAmplitudeControl()
+
+    /** How many of the eight AOSP primitives this actuator reports, for the setup screen. */
+    val primitiveCount: Int = runCatching {
+        vibrator.arePrimitivesSupported(
+            VibrationEffect.Composition.PRIMITIVE_CLICK,
+            VibrationEffect.Composition.PRIMITIVE_THUD,
+            VibrationEffect.Composition.PRIMITIVE_SPIN,
+            VibrationEffect.Composition.PRIMITIVE_QUICK_RISE,
+            VibrationEffect.Composition.PRIMITIVE_SLOW_RISE,
+            VibrationEffect.Composition.PRIMITIVE_QUICK_FALL,
+            VibrationEffect.Composition.PRIMITIVE_TICK,
+            VibrationEffect.Composition.PRIMITIVE_LOW_TICK,
+        ).count { it }
+    }.getOrDefault(0)
 
     val tier: HapticTier = when {
         hasClick && hasTick && hasThud -> HapticTier.FULL
         hasClick || hasTick -> HapticTier.PARTIAL
+        OplusHaptics.available -> HapticTier.VENDOR_ONLY
         else -> HapticTier.NONE
     }
 
-    val hasAmplitudeControl: Boolean = vibrator.hasAmplitudeControl()
+    /**
+     * AOSP stays the default wherever it works. The vendor path is a fallback for devices
+     * that never wired up the compose HAL, not an upgrade — it loses HAL-side timing.
+     */
+    val autoBackend: Backend =
+        if (!primitivesAvailable && OplusHaptics.available) Backend.OPLUS else Backend.AOSP
 
-    /** Master intensity, 0..1, exposed to the UI. */
+    /** Why [autoBackend] came out the way it did, shown on the setup card. */
+    val autoReason: String = when {
+        primitivesAvailable -> "$primitiveCount AOSP primitives supported"
+        OplusHaptics.available -> "no AOSP primitives; vendor engine found"
+        else -> "no primitives and no vendor engine; short one-shots only"
+    }
+
+    // Declared after autoBackend on purpose: Kotlin runs property initialisers in source
+    // order, so initialising this above would read autoBackend before it exists.
+    /** The path actually in use. Set via [applyChoice]. */
     @Volatile
-    var intensity: Float = 0.8f
+    var backend: Backend = autoBackend
+        private set
+
+    fun resolve(choice: BackendChoice): Backend =
+        resolveBackend(choice, autoBackend, OplusHaptics.available)
+
+    fun applyChoice(choice: BackendChoice) {
+        backend = resolve(choice)
+    }
+
+    @Volatile var intensity: Float = 0.8f
+
+    /** OPLUS effect id per band, indexed by [Band.ordinal]. */
+    @Volatile
+    var oplusEffects: IntArray = intArrayOf(2, 1, 0)
+
+    /** Detach OPLUS effects from the system vibration-intensity slider. */
+    @Volatile
+    var bypassSystemScaling: Boolean = false
 
     /**
-     * USAGE_MEDIA, not USAGE_TOUCH: this is part of media playback, so it should follow
-     * the media path and keep working while notifications are silenced. USAGE_TOUCH is
-     * suppressed by the system whenever touch feedback is off in settings, which would
-     * kill the app for anyone who dislikes keyboard haptics.
+     * Scheduling thread for the OPLUS path only.
+     *
+     * The AOSP path hands delays to the vibrator service inside one composition and the HAL
+     * keeps the spacing. OPLUS has no such call — one effect, fired now — so predicted beats
+     * have to be timed here. A dedicated max-priority executor is the closest available
+     * substitute; it costs a millisecond or two of jitter, which is the real price of the
+     * vendor backend and is worth knowing about before blaming the beat tracker.
      */
+    private val scheduler: ScheduledExecutorService =
+        Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "mmv-haptic").apply { priority = Thread.MAX_PRIORITY }
+        }
+
     private val vibrationAttrs: VibrationAttributes = VibrationAttributes.Builder()
         .setUsage(VibrationAttributes.USAGE_MEDIA)
         .build()
@@ -82,8 +155,78 @@ class HapticEngine(context: Context) {
         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
         .build()
 
+    // ---------------- public API ----------------
+
+    fun play(taps: List<Tap>) {
+        if (taps.isEmpty()) return
+        when (backend) {
+            Backend.OPLUS -> playOplus(taps)
+            Backend.AOSP -> playAosp(taps)
+        }
+    }
+
+    fun play(tap: Tap) = play(listOf(tap))
+
+    fun cancel() {
+        runCatching { vibrator.cancel() }
+        OplusHaptics.cancel()
+    }
+
+    fun shutdown() {
+        scheduler.shutdownNow()
+    }
+
+    /** Fires one raw OPLUS effect id — used by the effect browser in the UI. */
+    fun previewOplus(effectId: Int, strength: Int) =
+        OplusHaptics.vibrate(effectId, strength, bypassSystemScaling)
+
+    fun preview() = play(
+        listOf(
+            Tap(Band.LOW, 1.0f, 0),
+            Tap(Band.HIGH, 0.4f, 150),
+            Tap(Band.MID, 0.7f, 150),
+            Tap(Band.HIGH, 0.4f, 150),
+            Tap(Band.LOW, 1.0f, 150),
+        )
+    )
+
+    // ---------------- OPLUS path ----------------
+
+    private fun playOplus(taps: List<Tap>) {
+        var cumulative = 0
+        for (t in taps) {
+            cumulative += t.delayMs.coerceIn(0, 5_000)
+            val id = oplusEffects.getOrElse(t.band.ordinal) { oplusEffects.firstOrNull() ?: 0 }
+            val strength = oplusStrength(t.band, t.strength)
+            if (cumulative <= 0) {
+                OplusHaptics.vibrate(id, strength, bypassSystemScaling)
+            } else {
+                scheduler.schedule(
+                    { OplusHaptics.vibrate(id, strength, bypassSystemScaling) },
+                    cumulative.toLong(), TimeUnit.MILLISECONDS,
+                )
+            }
+        }
+    }
+
+    /**
+     * OPLUS exposes three discrete strengths, not a float scale, so the continuous onset
+     * strength is quantised. Band gain and the master intensity fold into the same number
+     * before quantising — otherwise a hi-hat and a kick both round to STRONG and every tap
+     * feels identical, which is the failure mode this whole app exists to avoid.
+     */
+    private fun oplusStrength(band: Band, strength: Float): Int {
+        val s = scaleFor(band, strength)
+        return when {
+            s >= 0.66f -> OplusHaptics.strengthStrong
+            s >= 0.36f -> OplusHaptics.strengthMedium
+            else -> OplusHaptics.strengthLight
+        }
+    }
+
+    // ---------------- AOSP path ----------------
+
     private fun primitiveFor(band: Band, strength: Float): Int = when (band) {
-        // THUD has the longest, lowest-frequency body — the closest thing to a kick.
         Band.LOW -> when {
             hasThud -> VibrationEffect.Composition.PRIMITIVE_THUD
             hasClick -> VibrationEffect.Composition.PRIMITIVE_CLICK
@@ -91,8 +234,6 @@ class HapticEngine(context: Context) {
         }
         Band.MID -> if (hasClick) VibrationEffect.Composition.PRIMITIVE_CLICK
         else VibrationEffect.Composition.PRIMITIVE_TICK
-        // Hats get LOW_TICK when available: a plain TICK at low scale is still too
-        // present and turns dense hi-hat patterns into a continuous itch.
         Band.HIGH -> when {
             strength < 0.5f && hasLowTick -> VibrationEffect.Composition.PRIMITIVE_LOW_TICK
             hasTick -> VibrationEffect.Composition.PRIMITIVE_TICK
@@ -107,22 +248,12 @@ class HapticEngine(context: Context) {
             Band.HIGH -> 0.55f
         }
         // 0.6 exponent: perceived haptic magnitude is compressive, so a linear map wastes
-        // most of the usable range at the top. The 0.12 floor exists because below it the
-        // actuator barely breaks static friction and the tap is simply dropped.
+        // the top of the range. 0.12 floor because below it the actuator barely moves.
         val s = strength.coerceIn(0f, 1f).pow(0.6f) * bandGain * intensity
         return s.coerceIn(0.12f, 1.0f)
     }
 
-    /**
-     * Fires a batch of taps as ONE composition.
-     *
-     * The delays are handed to the vibrator service instead of being posted on an app
-     * thread. App-side timers inherit scheduler jitter measured in whole milliseconds,
-     * which is enough to smear a hi-hat pattern; composition delays are applied down in
-     * the vibrator HAL and hold their spacing even when the UI thread is busy.
-     */
-    fun play(taps: List<Tap>) {
-        if (taps.isEmpty()) return
+    private fun playAosp(taps: List<Tap>) {
         if (!primitivesAvailable) {
             playFallback(taps.first())
             return
@@ -142,12 +273,9 @@ class HapticEngine(context: Context) {
             if (count == 0) return
             vibrate(composition.compose())
         } catch (_: IllegalArgumentException) {
-            // A device can reject a composition that is longer than its own limit.
             playFallback(taps.first())
         }
     }
-
-    fun play(tap: Tap) = play(listOf(tap))
 
     private fun playFallback(tap: Tap) {
         val ms = when (tap.band) {
@@ -173,23 +301,7 @@ class HapticEngine(context: Context) {
         }
     }
 
-    fun cancel() = vibrator.cancel()
-
-    /** Short demo used by the UI so the user can feel each band without music. */
-    fun preview() = play(
-        listOf(
-            Tap(Band.LOW, 1.0f, 0),
-            Tap(Band.HIGH, 0.4f, 150),
-            Tap(Band.MID, 0.7f, 150),
-            Tap(Band.HIGH, 0.4f, 150),
-            Tap(Band.LOW, 1.0f, 150),
-        )
-    )
-
     private companion object {
-        // Vibrator.getCompositionSizeMax() is not public API, and the platform minimum
-        // guarantee is small, so the batch is capped conservatively and the compose()
-        // call is wrapped in a try/catch above.
         const val MAX_PRIMITIVES = 8
     }
 }

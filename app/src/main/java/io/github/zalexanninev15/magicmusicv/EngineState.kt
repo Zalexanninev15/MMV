@@ -2,6 +2,7 @@ package io.github.zalexanninev15.magicmusicv
 
 import android.content.Context
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
+import io.github.zalexanninev15.magicmusicv.haptics.BackendChoice
 import kotlinx.coroutines.flow.MutableStateFlow
 
 enum class Mode {
@@ -41,6 +42,16 @@ object EngineState {
     val bandMid = MutableStateFlow(true)
     val bandHigh = MutableStateFlow(true)
 
+    /** OPLUS effect ids per band. Defaults are the three graded short single taps. */
+    val effectLow = MutableStateFlow(2)     // EFFECT_MODERATE_SHORT_VIBRATE_ONCE
+    val effectMid = MutableStateFlow(1)     // EFFECT_WEAK_SHORT_VIBRATE_ONCE
+    val effectHigh = MutableStateFlow(0)    // EFFECT_WEAKEST_SHORT_VIBRATE_ONCE
+    val bypassSystemScaling = MutableStateFlow(false)
+    val backendChoice = MutableStateFlow(BackendChoice.AUTO)
+
+    /** False until the user has been shown the backend picker once. */
+    val setupDone = MutableStateFlow(false)
+
     fun load(context: Context) {
         val p = context.getSharedPreferences("magicmusicv", Context.MODE_PRIVATE)
         mode.value = runCatching { Mode.valueOf(p.getString("mode", Mode.HYBRID.name)!!) }
@@ -54,6 +65,14 @@ object EngineState {
         bandLow.value = p.getBoolean("bandLow", true)
         bandMid.value = p.getBoolean("bandMid", true)
         bandHigh.value = p.getBoolean("bandHigh", true)
+        effectLow.value = p.getInt("effectLow", 2)
+        effectMid.value = p.getInt("effectMid", 1)
+        effectHigh.value = p.getInt("effectHigh", 0)
+        bypassSystemScaling.value = p.getBoolean("bypassSystemScaling", false)
+        backendChoice.value = runCatching {
+            BackendChoice.valueOf(p.getString("backendChoice", BackendChoice.AUTO.name)!!)
+        }.getOrDefault(BackendChoice.AUTO)
+        setupDone.value = p.getBoolean("setupDone", false)
     }
 
     fun save(context: Context) {
@@ -66,6 +85,12 @@ object EngineState {
             putBoolean("bandLow", bandLow.value)
             putBoolean("bandMid", bandMid.value)
             putBoolean("bandHigh", bandHigh.value)
+            putInt("effectLow", effectLow.value)
+            putInt("effectMid", effectMid.value)
+            putInt("effectHigh", effectHigh.value)
+            putBoolean("bypassSystemScaling", bypassSystemScaling.value)
+            putString("backendChoice", backendChoice.value.name)
+            putBoolean("setupDone", setupDone.value)
         }.apply()
     }
 }

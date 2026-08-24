@@ -33,10 +33,28 @@ object OemSupport {
         }
     }
 
-    /** OnePlus, realme and OPPO all ship the same OPLUS battery stack. */
-    val isOplus: Boolean = vendor != Vendor.OTHER
+    /**
+     * Build strings are not trustworthy on a rooted phone — a device can report itself as a
+     * Galaxy while running OxygenOS. Presence of the OPLUS framework classes cannot be
+     * faked by a build.prop edit, so it is checked alongside the manufacturer.
+     */
+    private val oplusFrameworkPresent: Boolean =
+        listOf(
+            "com.oplus.os.LinearmotorVibrator",
+            "com.oplus.os.WaveformEffect",
+            "com.oplus.content.OplusFeatureConfigManager",
+        ).any { runCatching { Class.forName(it) }.isSuccess }
 
-    val deviceLabel: String = "${Build.MANUFACTURER} ${Build.MODEL}"
+    /** OnePlus, realme and OPPO all ship the same OPLUS battery stack. */
+    val isOplus: Boolean = vendor != Vendor.OTHER || oplusFrameworkPresent
+
+    val deviceLabel: String = buildString {
+        append("${Build.MANUFACTURER} ${Build.MODEL}")
+        // Spoofing modules rewrite MODEL but rarely the fingerprint, so show both when they
+        // disagree — otherwise a diagnostic report names the wrong phone.
+        val fpModel = Build.FINGERPRINT.substringAfter('/', "").substringBefore('/')
+        if (fpModel.isNotEmpty() && !fpModel.equals(Build.MODEL, true)) append(" ($fpModel)")
+    }
 
     fun isBatteryUnrestricted(context: Context): Boolean =
         context.getSystemService(PowerManager::class.java)

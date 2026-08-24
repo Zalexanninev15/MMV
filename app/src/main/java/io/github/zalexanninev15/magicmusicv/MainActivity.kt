@@ -49,13 +49,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Probe before the engine is constructed: HapticEngine decides its tier and default
+        // backend from whether the OPLUS path resolved.
+        OplusHaptics.probe(this)
         engine = HapticEngine(this)
         EngineState.load(this)
 
         // Built once at startup. Shown in-app and written to a file, because OxygenOS and
         // ColorOS suppress third-party logcat output unless full logging is enabled in the
         // engineering menu — so logcat is the one place this must not live.
-        OplusHaptics.probe(this)
         report = HapticsReport.build(this)
         Log.i("MagicMusicV", report)
         runCatching {
@@ -66,10 +68,26 @@ class MainActivity : ComponentActivity() {
             MagicMusicScreen(
                 tier = engine.tier,
                 report = report,
+                oplusAvailable = OplusHaptics.available,
+                primitiveCount = engine.primitiveCount,
+                autoBackend = engine.autoBackend,
+                autoReason = engine.autoReason,
+                tapCandidates = OplusHaptics.tapCandidates,
+                onPreviewEffect = { id, strength ->
+                    engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
+                    engine.previewOplus(id, strength)
+                },
                 onStart = ::requestAndStart,
                 onStop = { HapticService.stop(this) },
                 onPreview = {
                     engine.intensity = EngineState.intensity.value
+                    engine.applyChoice(EngineState.backendChoice.value)
+                    engine.oplusEffects = intArrayOf(
+                        EngineState.effectLow.value,
+                        EngineState.effectMid.value,
+                        EngineState.effectHigh.value,
+                    )
+                    engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
                     engine.preview()
                 },
             )
@@ -79,6 +97,11 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         EngineState.save(this)
+    }
+
+    override fun onDestroy() {
+        engine.shutdown()
+        super.onDestroy()
     }
 
     private fun requestAndStart() {

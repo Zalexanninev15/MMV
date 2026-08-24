@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -19,8 +21,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -28,6 +32,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,7 +47,10 @@ import androidx.compose.ui.unit.dp
 import io.github.zalexanninev15.magicmusicv.EngineState
 import io.github.zalexanninev15.magicmusicv.Mode
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
+import io.github.zalexanninev15.magicmusicv.haptics.Backend
+import io.github.zalexanninev15.magicmusicv.haptics.BackendChoice
 import io.github.zalexanninev15.magicmusicv.haptics.HapticTier
+import io.github.zalexanninev15.magicmusicv.haptics.resolveBackend
 import io.github.zalexanninev15.magicmusicv.oem.OemSupport
 import io.github.zalexanninev15.magicmusicv.oem.Vendor
 import kotlin.math.roundToInt
@@ -51,6 +59,12 @@ import kotlin.math.roundToInt
 fun MagicMusicScreen(
     tier: HapticTier,
     report: String,
+    oplusAvailable: Boolean,
+    primitiveCount: Int,
+    autoBackend: Backend,
+    autoReason: String,
+    tapCandidates: List<Pair<String, Int>>,
+    onPreviewEffect: (Int, Int) -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onPreview: () -> Unit,
@@ -75,9 +89,17 @@ fun MagicMusicScreen(
         val bandLow by EngineState.bandLow.collectAsState()
         val bandMid by EngineState.bandMid.collectAsState()
         val bandHigh by EngineState.bandHigh.collectAsState()
+        val backendChoice by EngineState.backendChoice.collectAsState()
+        val resolvedBackend = resolveBackend(backendChoice, autoBackend, oplusAvailable)
+        val bypassScaling by EngineState.bypassSystemScaling.collectAsState()
+        val effectLowId by EngineState.effectLow.collectAsState()
+        val effectMidId by EngineState.effectMid.collectAsState()
+        val effectHighId by EngineState.effectHigh.collectAsState()
 
         var batteryOk by remember { mutableStateOf(OemSupport.isBatteryUnrestricted(context)) }
         var showReport by remember { mutableStateOf(false) }
+        var filter by remember { mutableStateOf("") }
+        var selectedEffect by remember { mutableIntStateOf(2) }
         val clipboard = LocalClipboardManager.current
 
         Scaffold { inner ->
@@ -92,24 +114,27 @@ fun MagicMusicScreen(
                 Text("Magic Music V", style = MaterialTheme.typography.headlineMedium)
                 Text(
                     OemSupport.deviceLabel + "  -  " + when (tier) {
-                        HapticTier.FULL -> "linear motor, full primitive set"
-                        HapticTier.PARTIAL -> "limited primitive set"
-                        HapticTier.NONE -> "no primitives"
+                        HapticTier.FULL -> "linear motor, full AOSP primitive set"
+                        HapticTier.PARTIAL -> "limited AOSP primitive set"
+                        HapticTier.VENDOR_ONLY -> "vendor haptics (O-Haptics)"
+                        HapticTier.NONE -> "no usable haptic engine"
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )
 
                 when (tier) {
                     HapticTier.NONE -> Warning(
-                        "This device reports no haptic primitives, which usually means a rotary ERM motor. " +
-                            "It physically cannot produce a tap - you will feel a buzz. Nothing in the app fixes that."
+                        "No AOSP primitives and no vendor haptic service. Taps fall back to short " +
+                            "one-shots, which on a rotary ERM motor read as a buzz rather than a knock."
                     )
 
                     HapticTier.PARTIAL -> Warning(
-                        "Partial primitive set: no THUD, so kicks fall back to CLICK and feel thinner than intended."
+                        "Partial AOSP primitive set: no THUD, so kicks fall back to CLICK and feel thinner."
                     )
 
-                    HapticTier.FULL -> Unit
+                    // Not a downgrade. OPLUS never wired up the AOSP compose HAL, so a
+                    // flagship X-axis LRA still reports zero primitives.
+                    HapticTier.VENDOR_ONLY, HapticTier.FULL -> Unit
                 }
 
                 error?.let { Warning(it) }
@@ -263,6 +288,113 @@ fun MagicMusicScreen(
                         modifier = Modifier.weight(1f),
                     ) { Text(if (running) "Stop" else "Start") }
                     OutlinedButton(onClick = onPreview, enabled = !running) { Text("Feel it") }
+                }
+
+                Section("Haptic engine") {
+                    Card {
+                        Column(
+                            Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                "Detected: " + when (resolvedBackend) {
+                                    Backend.OPLUS -> "O-Haptics (vendor)"
+                                    Backend.AOSP -> if (primitiveCount > 0) "AOSP primitives"
+                                    else "AOSP one-shots"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(autoReason, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    if (oplusAvailable) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip("Auto", backendChoice == BackendChoice.AUTO, !running) {
+                                EngineState.backendChoice.value = BackendChoice.AUTO
+                            }
+                            Chip("AOSP", backendChoice == BackendChoice.AOSP, !running) {
+                                EngineState.backendChoice.value = BackendChoice.AOSP
+                            }
+                            Chip("O-Haptics", backendChoice == BackendChoice.OPLUS, !running) {
+                                EngineState.backendChoice.value = BackendChoice.OPLUS
+                            }
+                        }
+                        Text(
+                            "Auto is detection-driven and the right setting on every device. " +
+                                "The overrides exist only to A/B the two paths where both work.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (resolvedBackend == Backend.OPLUS) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Switch(
+                                checked = bypassScaling,
+                                onCheckedChange = { EngineState.bypassSystemScaling.value = it },
+                            )
+                            Text(
+                                "Ignore system vibration intensity",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+
+                if (resolvedBackend == Backend.OPLUS) {
+                    Section("Effect lab") {
+                        OutlinedTextField(
+                            value = filter,
+                            onValueChange = { filter = it },
+                            label = { Text("Filter ${tapCandidates.size} tap effects") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        val shown = remember(filter, tapCandidates) {
+                            if (filter.isBlank()) tapCandidates
+                            else tapCandidates.filter { it.first.contains(filter, true) }
+                        }
+                        Card {
+                            LazyColumn(modifier = Modifier.height(240.dp)) {
+                                items(shown.size) { i ->
+                                    val (name, id) = shown[i]
+                                    val selected = id == selectedEffect
+                                    Text(
+                                        "${if (selected) "> " else "  "}$id  ${name.removePrefix("EFFECT_")}",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                selectedEffect = id
+                                                onPreviewEffect(id, 1)
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { onPreviewEffect(selectedEffect, 0) }) { Text("Light") }
+                            TextButton(onClick = { onPreviewEffect(selectedEffect, 1) }) { Text("Medium") }
+                            TextButton(onClick = { onPreviewEffect(selectedEffect, 2) }) { Text("Strong") }
+                        }
+                        Text("Assign effect $selectedEffect to:", style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip("Low $effectLowId", false, true) {
+                                EngineState.effectLow.value = selectedEffect
+                            }
+                            Chip("Mid $effectMidId", false, true) {
+                                EngineState.effectMid.value = selectedEffect
+                            }
+                            Chip("High $effectHighId", false, true) {
+                                EngineState.effectHigh.value = selectedEffect
+                            }
+                        }
+                    }
                 }
 
                 Section("Diagnostics") {
