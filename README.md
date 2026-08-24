@@ -1,6 +1,6 @@
 # Magic Music V
 
-![platform](https://img.shields.io/badge/platform-Android_15.0%2B*-3DDC84.svg?logo=android)
+![platform](https://img.shields.io/badge/platform-Android_12%2B*-3DDC84.svg?logo=android)
 ![version](https://img.shields.io/badge/version-0.2.0_alpha-orange)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
@@ -12,7 +12,7 @@ discrete, graded knocks, not a continuous buzz. **Magic Music V** for creating p
 
 A note regarding the Android version for work:
 
-*At the moment, it is not possible to test on a device with a version lower than Android 16, so I left the 15th version as the most suitable. I have plans to test the work on other devices.
+*At the moment, it is not possible to test on a device with a version lower than Android 16, so I left the 12 version as the most suitable. I have plans to test the work on other devices.
 
 ---
 

@@ -1,32 +1,32 @@
 package io.github.zalexanninev15.magicmusicv.haptics
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import java.lang.reflect.Method
 
 /**
  * Optional backend that talks to OPLUS's own haptic service instead of AOSP's Vibrator.
  *
- * This is what people mean by "O-Haptics" at the API level: ColorOS / OxygenOS / realme UI
- * ship a `LinearmotorVibrator` system service and a `WaveformEffect` type in the `oplus`
- * shared library, alongside — not inside — the AOSP framework. The class name, package and
- * method signatures have moved between ColorOS releases, so nothing here is hardcoded
- * against a version: [probe] discovers what actually exists on this device and the object
- * disables itself if anything is missing.
+ * "O-Haptics" at the API level is a `LinearmotorVibrator` system service plus a
+ * `WaveformEffect` type living in the `oplus` shared library — alongside, not inside, the
+ * AOSP framework. Names and signatures have moved between ColorOS releases, so nothing is
+ * hardcoded: [probe] discovers what exists and records why each step failed.
  *
- * Read [describe] output before trusting it. It prints the effect constants this ROM
- * exposes, which is the only reliable source for the numbers to pass to [vibrate].
+ * Every step is independent on purpose. An earlier version returned as soon as the system
+ * service came back null, which meant the report said nothing on exactly the devices where
+ * you most need to know what went wrong.
  *
- * Trade-off worth understanding before switching this on: the OPLUS API fires one prebaked
- * effect at a time. It has no equivalent of `VibrationEffect.Composition`'s per-primitive
- * delay, so the batched, HAL-timed scheduling that Beat and Hybrid modes rely on is lost.
- * Use it in Onsets mode, where every tap is immediate anyway.
+ * Trade-off before switching this on: the OPLUS API fires one prebaked effect at a time and
+ * has no equivalent of `VibrationEffect.Composition`'s per-primitive delay, so the batched
+ * HAL-timed scheduling behind Beat and Hybrid modes is lost. It suits Onsets mode.
  */
 object OplusHaptics {
 
     private const val TAG = "OplusHaptics"
 
     private var service: Any? = null
+    private var serviceName: String? = null
     private var builderClass: Class<*>? = null
     private var effectClass: Class<*>? = null
     private var setEffectType: Method? = null
@@ -34,6 +34,8 @@ object OplusHaptics {
     private var setAsynchronous: Method? = null
     private var build: Method? = null
     private var vibrateMethod: Method? = null
+
+    private val notes = mutableListOf<String>()
 
     @Volatile
     var available: Boolean = false
@@ -43,77 +45,135 @@ object OplusHaptics {
     var effectConstants: Map<String, Int> = emptyMap()
         private set
 
-    private val serviceClassNames = listOf(
+    private val serviceNames = listOf(
+        "linearmotor",
+        "oplus_linearmotor",
+        "linearmotor_vibrator",
+        "LinearmotorVibratorService",
+    )
+
+    private val vibratorClassNames = listOf(
         "com.oplus.os.LinearmotorVibrator",
         "android.os.LinearmotorVibrator",
+        "com.oplus.os.OplusLinearmotorVibrator",
     )
+
     private val effectClassNames = listOf(
         "com.oplus.os.WaveformEffect",
         "android.os.WaveformEffect",
+        "com.oplus.os.OplusWaveformEffect",
     )
 
-    /**
-     * Attempts to bind to the OPLUS vibrator. Safe to call on any device; returns false
-     * and leaves the object inert on anything that is not an OPLUS ROM.
-     */
+    /** Safe on any device; leaves the object inert on anything that is not an OPLUS ROM. */
     fun probe(context: Context): Boolean {
+        notes.clear()
         available = false
-        val svc = runCatching { context.getSystemService("linearmotor") }.getOrNull()
-        if (svc == null) {
-            Log.i(TAG, "no linearmotor system service on this device")
-            return false
+        service = null
+        serviceName = null
+        effectClass = null
+        builderClass = null
+        effectConstants = emptyMap()
+
+        notes += "device: ${Build.MANUFACTURER} ${Build.MODEL} / ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})"
+        notes += "fingerprint: ${Build.FINGERPRINT}"
+
+        // Is the oplus shared library even visible to this process?
+        val libs = runCatching { context.packageManager.systemSharedLibraryNames?.toList() }
+            .getOrNull()
+            .orEmpty()
+        notes += "shared libs containing 'oplus': " +
+            (libs.filter { it.contains("oplus", true) }.ifEmpty { listOf("(none)") }.joinToString())
+
+        // Class lookup runs regardless of whether the service resolves — the constants are
+        // useful on their own, and a class-not-found is a different problem than a
+        // service-not-found.
+        val loaders = listOfNotNull(
+            context.classLoader,
+            javaClass.classLoader,
+            ClassLoader.getSystemClassLoader(),
+        )
+
+        for (name in vibratorClassNames) {
+            val c = findClass(name, loaders)
+            if (c != null) {
+                notes += "vibrator class found: $name"
+                break
+            }
         }
-        service = svc
 
         effectClass = effectClassNames.firstNotNullOfOrNull { name ->
-            runCatching { Class.forName(name) }.getOrNull()
+            findClass(name, loaders)?.also { notes += "effect class found: $name" }
         }
-        val effect = effectClass ?: run {
-            Log.w(TAG, "linearmotor service present but WaveformEffect class not found")
-            return false
+        if (effectClass == null) notes += "effect class: NOT FOUND (tried ${effectClassNames.joinToString()})"
+
+        effectClass?.let { effect ->
+            builderClass = effect.declaredClasses.firstOrNull { it.simpleName == "Builder" }
+                ?: findClass("${effect.name}\$Builder", loaders)
+            notes += if (builderClass != null) "builder: ${builderClass!!.name}" else "builder: NOT FOUND"
+
+            effectConstants = effect.fields
+                .filter {
+                    it.type == Int::class.javaPrimitiveType &&
+                        (it.name.startsWith("EFFECT_") || it.name.startsWith("STRENGTH_") ||
+                            it.name.startsWith("TYPE_"))
+                }
+                .mapNotNull { f -> runCatching { f.name to f.getInt(null) }.getOrNull() }
+                .toMap()
+            notes += "int constants harvested: ${effectConstants.size}"
         }
 
-        builderClass = effect.declaredClasses.firstOrNull { it.simpleName == "Builder" }
-            ?: runCatching { Class.forName("${effect.name}\$Builder") }.getOrNull()
-        val builder = builderClass ?: run {
-            Log.w(TAG, "WaveformEffect.Builder not found")
-            return false
-        }
-
-        setEffectType = builder.methods.firstOrNull {
-            it.name == "setEffectType" && it.parameterTypes.size == 1 &&
-                it.parameterTypes[0] == Int::class.javaPrimitiveType
-        }
-        setStrength = builder.methods.firstOrNull {
-            it.name == "setStrength" && it.parameterTypes.size == 1
-        }
-        setAsynchronous = builder.methods.firstOrNull {
-            it.name == "setAsynchronous" && it.parameterTypes.size == 1
-        }
-        build = builder.methods.firstOrNull { it.name == "build" && it.parameterTypes.isEmpty() }
-
-        vibrateMethod = svc.javaClass.methods.firstOrNull {
-            it.name == "vibrate" && it.parameterTypes.size == 1 &&
-                it.parameterTypes[0].isAssignableFrom(effect)
-        }
-
-        effectConstants = effect.fields
-            .filter {
-                it.type == Int::class.javaPrimitiveType &&
-                    (it.name.startsWith("EFFECT_") || it.name.startsWith("STRENGTH_"))
+        builderClass?.let { b ->
+            setEffectType = b.methods.firstOrNull {
+                it.name == "setEffectType" && it.parameterTypes.size == 1 &&
+                    it.parameterTypes[0] == Int::class.javaPrimitiveType
             }
-            .mapNotNull { f -> runCatching { f.name to f.getInt(null) }.getOrNull() }
-            .toMap()
+            setStrength = b.methods.firstOrNull { it.name == "setStrength" && it.parameterTypes.size == 1 }
+            setAsynchronous = b.methods.firstOrNull { it.name == "setAsynchronous" && it.parameterTypes.size == 1 }
+            build = b.methods.firstOrNull { it.name == "build" && it.parameterTypes.isEmpty() }
+            notes += "builder methods: " + b.methods.map { it.name }.distinct().sorted().joinToString()
+        }
 
-        available = setEffectType != null && build != null && vibrateMethod != null
-        Log.i(TAG, "probe -> available=$available, ${effectConstants.size} constants")
+        for (name in serviceNames) {
+            val svc = runCatching { context.getSystemService(name) }.getOrNull()
+            if (svc != null) {
+                service = svc
+                serviceName = name
+                notes += "system service '$name' -> ${svc.javaClass.name}"
+                notes += "service methods: " +
+                    svc.javaClass.methods.map { it.name }.distinct().sorted().joinToString()
+                break
+            }
+        }
+        if (service == null) notes += "system service: NOT FOUND (tried ${serviceNames.joinToString()})"
+
+        val svc = service
+        val effect = effectClass
+        if (svc != null && effect != null) {
+            vibrateMethod = svc.javaClass.methods.firstOrNull {
+                it.name == "vibrate" && it.parameterTypes.size == 1 &&
+                    it.parameterTypes[0].isAssignableFrom(effect)
+            }
+            if (vibrateMethod == null) notes += "no vibrate(WaveformEffect) overload on the service"
+        }
+
+        available = setEffectType != null && build != null && vibrateMethod != null &&
+            builderClass != null
+        notes += "available: $available"
+        Log.i(TAG, "probe -> available=$available")
         return available
     }
 
+    private fun findClass(name: String, loaders: List<ClassLoader>): Class<*>? {
+        for (l in loaders) {
+            runCatching { Class.forName(name, false, l) }.getOrNull()?.let { return it }
+        }
+        return runCatching { Class.forName(name) }.getOrNull()
+    }
+
     /**
-     * Fires one prebaked OPLUS effect. [effectType] must be a value from
-     * [effectConstants] — the numbering is not stable across ColorOS releases, so do not
-     * hardcode integers copied from a blog post.
+     * Fires one prebaked OPLUS effect. [effectType] must come from [effectConstants] — the
+     * numbering is not stable across ColorOS releases, so don't hardcode integers copied
+     * from a forum post.
      */
     fun vibrate(effectType: Int, strength: Int? = null, async: Boolean = true): Boolean {
         if (!available) return false
@@ -132,20 +192,26 @@ object OplusHaptics {
         }
     }
 
-    /**
-     * Human-readable dump of what was discovered. Print this from the app (or logcat) on
-     * the target device before wiring any effect constant into the tap mapping.
-     */
+    /** Full report. Shown in the app and written to a file — logcat is not required. */
     fun describe(): String = buildString {
-        appendLine("service: ${service?.javaClass?.name ?: "none"}")
-        appendLine("effect:  ${effectClass?.name ?: "none"}")
-        appendLine("builder: ${builderClass?.name ?: "none"}")
-        appendLine("setEffectType: ${setEffectType != null}")
-        appendLine("setStrength:   ${setStrength != null}")
-        appendLine("setAsync:      ${setAsynchronous != null}")
-        appendLine("vibrate:       ${vibrateMethod != null}")
-        appendLine("available: $available")
-        appendLine("--- constants (${effectConstants.size}) ---")
-        effectConstants.entries.sortedBy { it.value }.forEach { (k, v) -> appendLine("$k = $v") }
+        appendLine("=== Magic Music V / O-Haptics probe ===")
+        notes.forEach { appendLine(it) }
+        appendLine()
+        appendLine("resolved:")
+        appendLine("  service        ${service?.javaClass?.name ?: "-"} (as '${serviceName ?: "-"}')")
+        appendLine("  effect class   ${effectClass?.name ?: "-"}")
+        appendLine("  builder class  ${builderClass?.name ?: "-"}")
+        appendLine("  setEffectType  ${setEffectType != null}")
+        appendLine("  setStrength    ${setStrength != null}")
+        appendLine("  setAsync       ${setAsynchronous != null}")
+        appendLine("  vibrate        ${vibrateMethod != null}")
+        appendLine()
+        appendLine("constants (${effectConstants.size}):")
+        if (effectConstants.isEmpty()) {
+            appendLine("  (none)")
+        } else {
+            effectConstants.entries.sortedBy { it.value }
+                .forEach { (k, v) -> appendLine("  $k = $v") }
+        }
     }
 }

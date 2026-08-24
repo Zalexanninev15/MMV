@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -31,7 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +50,7 @@ import kotlin.math.roundToInt
 @Composable
 fun MagicMusicScreen(
     tier: HapticTier,
+    report: String,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onPreview: () -> Unit,
@@ -72,6 +77,8 @@ fun MagicMusicScreen(
         val bandHigh by EngineState.bandHigh.collectAsState()
 
         var batteryOk by remember { mutableStateOf(OemSupport.isBatteryUnrestricted(context)) }
+        var showReport by remember { mutableStateOf(false) }
+        val clipboard = LocalClipboardManager.current
 
         Scaffold { inner ->
             Column(
@@ -256,6 +263,35 @@ fun MagicMusicScreen(
                         modifier = Modifier.weight(1f),
                     ) { Text(if (running) "Stop" else "Start") }
                     OutlinedButton(onClick = onPreview, enabled = !running) { Text("Feel it") }
+                }
+
+                Section("Diagnostics") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { showReport = !showReport }) {
+                            Text(if (showReport) "Hide report" else "Haptics report")
+                        }
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(report))
+                        }) { Text("Copy") }
+                    }
+                    if (showReport) {
+                        Card {
+                            SelectionContainer {
+                                Text(
+                                    report,
+                                    modifier = Modifier
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(12.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "Also written to Android/data/<package>/files/haptics-report.txt",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
 
                 Spacer(Modifier.height(24.dp))

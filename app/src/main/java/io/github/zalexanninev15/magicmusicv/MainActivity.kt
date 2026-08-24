@@ -15,13 +15,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.haptics.HapticEngine
+import io.github.zalexanninev15.magicmusicv.haptics.HapticsReport
 import io.github.zalexanninev15.magicmusicv.haptics.OplusHaptics
 import io.github.zalexanninev15.magicmusicv.service.HapticService
 import io.github.zalexanninev15.magicmusicv.ui.MagicMusicScreen
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var engine: HapticEngine
+    private var report: String = ""
 
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -49,14 +52,20 @@ class MainActivity : ComponentActivity() {
         engine = HapticEngine(this)
         EngineState.load(this)
 
-        // Runs once, costs a few reflection lookups, and is the only way to find out what
-        // this particular ColorOS build exposes. `adb logcat -s OplusHaptics` prints it.
+        // Built once at startup. Shown in-app and written to a file, because OxygenOS and
+        // ColorOS suppress third-party logcat output unless full logging is enabled in the
+        // engineering menu — so logcat is the one place this must not live.
         OplusHaptics.probe(this)
-        Log.i("MagicMusicV", OplusHaptics.describe())
+        report = HapticsReport.build(this)
+        Log.i("MagicMusicV", report)
+        runCatching {
+            File(getExternalFilesDir(null), "haptics-report.txt").writeText(report)
+        }
 
         setContent {
             MagicMusicScreen(
                 tier = engine.tier,
+                report = report,
                 onStart = ::requestAndStart,
                 onStop = { HapticService.stop(this) },
                 onPreview = {
