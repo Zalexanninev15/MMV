@@ -90,9 +90,16 @@ class HapticService : Service() {
                 return START_NOT_STICKY
             }
             val mgr = getSystemService(MediaProjectionManager::class.java)
-            projection = mgr.getMediaProjection(code, data).also {
-                it.registerCallback(projectionCallback, main)
+            // getMediaProjection() is @Nullable: the token is single-use and the platform
+            // returns null if this Intent was already consumed, or if the FGS type was
+            // wrong when it was called.
+            val mp = mgr.getMediaProjection(code, data)
+            if (mp == null) {
+                stopEverything("Screen capture token was rejected — start again")
+                return START_NOT_STICKY
             }
+            mp.registerCallback(projectionCallback, main)
+            projection = mp
         }
 
         acquireWakeLock()
