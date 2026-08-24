@@ -5,13 +5,14 @@
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 Android app that **taps** the vibration motor in time with whatever music is playing —
-discrete, graded knocks, not a continuous buzz. **Magic Music V** for creating pleasant tactile feedback when playing music and videos (and in the future). It focuses on devices with the best vibration functions. Other devices from different brands are accepted. Perhaps in the future, there will be support not only for Android smartphones, but also for other devices with tactile response or something similar.
-
-A note regarding the Android version for work:
-*At the moment, it is not possible to test on a device with a version lower than Android 16, so I left the 15th version as the most suitable. I have plans to test the work on other devices.
+discrete, graded knocks, not a continuous buzz. **Magic Music V** for creating pleasant tactile feedback when playing music and videos (and in the future). It focuses on devices with the best vibration functions. Other devices from different brands are accepted. Perhaps in the future, there will be support not only for Android smartphones, but also for other devices with tactile response or something similar. If I can afford to buy a MacBook Pro M4 Pro/M3 Pro, then I would like to try to implement this on it via the touchpad, if possible, of course, because I have heard that tactile feedback on modern MacBooks has already been implemented. I can't promise anything on the iPhone, because I don't have it at my disposal and I don't plan to buy it, but if you can send it to me for free or test it yourself, I'll do the same, but only after buying the MacBook.
 
 > [!NOTE]
 > **Built for OnePlus and realme first.** Those phones (and their OPPO siblings) ship X-axis linear actuators with the full `VibrationEffect.Composition` primitive set, which is the only hardware that can actually do what this app is for. Everything else is best-effort. First developed for OnePlus 15, There are plans to test on an old device - the Realme GT Neo 3.
+
+A note regarding the Android version for work:
+
+*At the moment, it is not possible to test on a device with a version lower than Android 16, so I left the 15th version as the most suitable. I have plans to test the work on other devices.
 
 ---
 
