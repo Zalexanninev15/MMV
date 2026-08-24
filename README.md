@@ -7,6 +7,9 @@
 Android app that **taps** the vibration motor in time with whatever music is playing —
 discrete, graded knocks, not a continuous buzz. **Magic Music V** for creating pleasant tactile feedback when playing music and videos (and in the future). It focuses on devices with the best vibration functions. Other devices from different brands are accepted. Perhaps in the future, there will be support not only for Android smartphones, but also for other devices with tactile response or something similar.
 
+A note regarding the Android version for work:
+*At the moment, it is not possible to test on a device with a version lower than Android 16, so I left the 15th version as the most suitable. I have plans to test the work on other devices.
+
 > [!NOTE]
 > **Built for OnePlus and realme first.** Those phones (and their OPPO siblings) ship X-axis linear actuators with the full `VibrationEffect.Composition` primitive set, which is the only hardware that can actually do what this app is for. Everything else is best-effort. First developed for OnePlus 15, There are plans to test on an old device - the Realme GT Neo 3.
 
