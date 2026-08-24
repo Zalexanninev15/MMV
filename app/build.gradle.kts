@@ -15,8 +15,8 @@ android {
         // so anything below 31 would silently degrade to a buzz — not worth shipping.
         minSdk = 31
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 4
+        versionName = "0.4"
     }
 
     buildTypes {

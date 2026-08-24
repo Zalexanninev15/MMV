@@ -18,6 +18,7 @@ import io.github.zalexanninev15.magicmusicv.haptics.HapticEngine
 import io.github.zalexanninev15.magicmusicv.haptics.HapticsReport
 import io.github.zalexanninev15.magicmusicv.haptics.OplusHaptics
 import io.github.zalexanninev15.magicmusicv.service.HapticService
+import io.github.zalexanninev15.magicmusicv.settings.SettingsCodec
 import io.github.zalexanninev15.magicmusicv.ui.MagicMusicScreen
 import java.io.File
 
@@ -46,6 +47,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Storage Access Framework rather than a path in external storage: no permission is
+    // needed, the user picks where the file goes, and it survives scoped-storage rules.
+    private val exportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching {
+            contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(SettingsCodec.encode(EngineState.snapshot()).toByteArray())
+            } ?: error("Could not open the file for writing")
+            EngineState.notice.value = "Settings exported"
+        }.onFailure { EngineState.error.value = "Export failed: ${it.message}" }
+    }
+
+    private val importLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching {
+            val text = contentResolver.openInputStream(uri)
+                ?.bufferedReader()?.use { it.readText() }
+                ?: error("Could not read the file")
+            val snapshot = SettingsCodec.decode(text, EngineState.DEFAULTS)
+                ?: error("Not a Magic Music V settings file")
+            EngineState.applySnapshot(snapshot)
+            EngineState.save(this)
+            EngineState.notice.value = "Settings imported"
+        }.onFailure { EngineState.error.value = "Import failed: ${it.message}" }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -64,8 +95,14 @@ class MainActivity : ComponentActivity() {
             File(getExternalFilesDir(null), "haptics-report.txt").writeText(report)
         }
 
+        val version = runCatching {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0).versionName
+        }.getOrNull() ?: "?"
+
         setContent {
             MagicMusicScreen(
+                version = version,
                 tier = engine.tier,
                 report = report,
                 oplusAvailable = OplusHaptics.available,
@@ -90,6 +127,10 @@ class MainActivity : ComponentActivity() {
                     engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
                     engine.preview()
                 },
+                onExport = { exportLauncher.launch("magic-music-v-settings.json") },
+                // Some file managers hand JSON back as octet-stream, so the filter stays wide
+                // and the format check happens on the contents instead.
+                onImport = { importLauncher.launch(arrayOf("*/*")) },
             )
         }
     }
