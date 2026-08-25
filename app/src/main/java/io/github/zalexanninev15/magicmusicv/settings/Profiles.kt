@@ -5,6 +5,7 @@ import io.github.zalexanninev15.magicmusicv.AppTheme
 import io.github.zalexanninev15.magicmusicv.Mode
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.haptics.BackendChoice
+import io.github.zalexanninev15.magicmusicv.haptics.MagicFeedback
 import org.json.JSONObject
 
 /** Every persisted tunable, as one immutable value. */
@@ -23,6 +24,8 @@ data class SettingsSnapshot(
     val bypassSystemScaling: Boolean,
     val backendChoice: BackendChoice,
     val theme: AppTheme,
+    /** MagicFeedback preset id, or "" for off. */
+    val magicPreset: String,
 )
 
 /**
@@ -57,6 +60,7 @@ object SettingsCodec {
         put("bypassSystemScaling", s.bypassSystemScaling)
         put("backendChoice", s.backendChoice.name)
         put("theme", s.theme.name)
+        put("magicPreset", s.magicPreset)
     }.toString(2)
 
     /** Returns null when the text is not one of our files. */
@@ -84,6 +88,9 @@ object SettingsCodec {
                 o.optString("backendChoice"), BackendChoice.entries, defaults.backendChoice
             ),
             theme = enumOr(o.optString("theme"), AppTheme.entries, defaults.theme),
+            // Unknown preset ids degrade to off rather than to an arbitrary preset.
+            magicPreset = o.optString("magicPreset", defaults.magicPreset)
+                .takeIf { it.isEmpty() || MagicFeedback.byId(it) != null } ?: "",
         )
     }
 

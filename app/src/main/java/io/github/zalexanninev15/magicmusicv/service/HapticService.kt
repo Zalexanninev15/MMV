@@ -131,6 +131,7 @@ class HapticService : Service() {
             EngineState.effectHigh.value,
         )
         engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
+        engine.magicPresetId = EngineState.magicPreset.value.takeIf { it.isNotEmpty() }
         detector.sensitivity = EngineState.sensitivity.value
         detector.bandEnabled = booleanArrayOf(
             EngineState.bandLow.value,

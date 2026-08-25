@@ -114,6 +114,10 @@ class MainActivity : ComponentActivity() {
                     engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
                     engine.previewOplus(id, strength)
                 },
+                onPreviewMagic = { id ->
+                    engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
+                    engine.previewMagic(id)
+                },
                 onStart = ::requestAndStart,
                 onStop = { HapticService.stop(this) },
                 onPreview = {

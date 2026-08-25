@@ -125,6 +125,16 @@ class HapticEngine(context: Context) {
     @Volatile
     var oplusEffects: IntArray = intArrayOf(2, 1, 0)
 
+    /**
+     * Active MagicFeedback preset id, or null for the plain graded taps.
+     *
+     * When set it overrides [oplusEffects] and brings its own per-band rate limits: the
+     * textured effects are several times longer than a short tap, and at onset rate they
+     * overlap into exactly the continuous buzz this app exists to avoid.
+     */
+    @Volatile
+    var magicPresetId: String? = null
+
     /** Detach OPLUS effects from the system vibration-intensity slider. */
     @Volatile
     var bypassSystemScaling: Boolean = false
@@ -189,11 +199,30 @@ class HapticEngine(context: Context) {
 
     // ---------------- OPLUS path ----------------
 
+    /** Last fire time per band, for the magic-preset rate limit. Audio thread only. */
+    private val lastFireMs = longArrayOf(0, 0, 0)
+
     private fun playOplus(taps: List<Tap>) {
+        val preset = MagicFeedback.byId(magicPresetId)
+        val magicIds = preset?.let { MagicFeedback.resolve(it) }
+        val gaps = preset?.let { intArrayOf(it.gapLow, it.gapMid, it.gapHigh) }
+        val now = System.currentTimeMillis()
+
         var cumulative = 0
         for (t in taps) {
             cumulative += t.delayMs.coerceIn(0, 5_000)
-            val id = oplusEffects.getOrElse(t.band.ordinal) { oplusEffects.firstOrNull() ?: 0 }
+            val band = t.band.ordinal
+
+            if (gaps != null) {
+                // Gate on the moment the tap will actually fire, not on now — a scheduled
+                // beat 200 ms out must not be dropped because of a tap that just played.
+                val at = now + cumulative
+                if (at - lastFireMs[band] < gaps[band]) continue
+                lastFireMs[band] = at
+            }
+
+            val table = magicIds ?: oplusEffects
+            val id = table.getOrElse(band) { table.firstOrNull() ?: 0 }
             val strength = oplusStrength(t.band, t.strength)
             if (cumulative <= 0) {
                 OplusHaptics.vibrate(id, strength, bypassSystemScaling)
@@ -201,6 +230,31 @@ class HapticEngine(context: Context) {
                 scheduler.schedule(
                     { OplusHaptics.vibrate(id, strength, bypassSystemScaling) },
                     cumulative.toLong(), TimeUnit.MILLISECONDS,
+                )
+            }
+        }
+    }
+
+    /** Fires a short demo of a preset: kick, hat, snare, hat, kick. */
+    fun previewMagic(presetId: String) {
+        val preset = MagicFeedback.byId(presetId) ?: return
+        val ids = MagicFeedback.resolve(preset) ?: return
+        val steps = listOf(
+            Triple(ids[0], OplusHaptics.strengthStrong, 0),
+            Triple(ids[2], OplusHaptics.strengthLight, preset.gapHigh + 120),
+            Triple(ids[1], OplusHaptics.strengthMedium, preset.gapMid + 120),
+            Triple(ids[2], OplusHaptics.strengthLight, preset.gapHigh + 120),
+            Triple(ids[0], OplusHaptics.strengthStrong, preset.gapLow + 120),
+        )
+        var at = 0L
+        for ((id, strength, delay) in steps) {
+            at += delay
+            if (at == 0L) {
+                OplusHaptics.vibrate(id, strength, bypassSystemScaling)
+            } else {
+                scheduler.schedule(
+                    { OplusHaptics.vibrate(id, strength, bypassSystemScaling) },
+                    at, TimeUnit.MILLISECONDS,
                 )
             }
         }

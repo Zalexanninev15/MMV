@@ -16,6 +16,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +53,11 @@ import io.github.zalexanninev15.magicmusicv.Mode
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.haptics.Backend
 import io.github.zalexanninev15.magicmusicv.haptics.BackendChoice
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
 import io.github.zalexanninev15.magicmusicv.haptics.HapticTier
+import io.github.zalexanninev15.magicmusicv.haptics.MagicFeedback
 import io.github.zalexanninev15.magicmusicv.haptics.resolveBackend
 import io.github.zalexanninev15.magicmusicv.oem.OemSupport
 import io.github.zalexanninev15.magicmusicv.oem.Vendor
@@ -70,6 +77,7 @@ fun MagicMusicScreen(
     autoReason: String,
     tapCandidates: List<Pair<String, Int>>,
     onPreviewEffect: (Int, Int) -> Unit,
+    onPreviewMagic: (String) -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onPreview: () -> Unit,
@@ -108,7 +116,11 @@ fun MagicMusicScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Magic Music V", style = MaterialTheme.typography.headlineSmall)
-                    TextButton(onClick = { showAbout = true }) { Text("About") }
+                    // Tonal fill rather than a bare TextButton: as plain text next to a
+                    // headline it read as a label, not something you could press.
+                    FilledTonalIconButton(onClick = { showAbout = true }) {
+                        Icon(Icons.Filled.Info, contentDescription = "About")
+                    }
                 }
 
                 Row(
@@ -132,7 +144,10 @@ fun MagicMusicScreen(
                     Spacer(Modifier.height(4.dp))
                     when (tab) {
                         Tab.PLAY -> PlayTab(running, onStart, onStop, onPreview)
-                        Tab.TUNE -> TuneTab(oplusAvailable, autoBackend, tapCandidates, onPreviewEffect)
+                        Tab.TUNE -> TuneTab(
+                            oplusAvailable, autoBackend, tapCandidates,
+                            onPreviewEffect, onPreviewMagic,
+                        )
                         Tab.SETUP -> SetupTab(
                             tier, report, oplusAvailable, primitiveCount,
                             autoBackend, autoReason, running, onExport, onImport,
@@ -273,10 +288,12 @@ private fun TuneTab(
     autoBackend: Backend,
     tapCandidates: List<Pair<String, Int>>,
     onPreviewEffect: (Int, Int) -> Unit,
+    onPreviewMagic: (String) -> Unit,
 ) {
     val intensity by EngineState.intensity.collectAsState()
     val sensitivity by EngineState.sensitivity.collectAsState()
     val offsetMs by EngineState.offsetMs.collectAsState()
+    val magicPreset by EngineState.magicPreset.collectAsState()
     val bandLow by EngineState.bandLow.collectAsState()
     val bandMid by EngineState.bandMid.collectAsState()
     val bandHigh by EngineState.bandHigh.collectAsState()
@@ -329,7 +346,69 @@ private fun TuneTab(
         )
     }
 
-    if (resolved == Backend.OPLUS) EffectLab(tapCandidates, onPreviewEffect)
+    if (resolved == Backend.OPLUS) {
+        if (MagicFeedback.available) MagicSection(magicPreset, onPreviewMagic)
+        EffectLab(tapCandidates, onPreviewEffect)
+    }
+}
+
+/**
+ * The textured presets.
+ *
+ * Kept out of the effect lab because it answers a different question: the lab is "which
+ * single effect fires per band", this is "what should the phone pretend to be".
+ */
+@Composable
+private fun MagicSection(magicPreset: String, onPreviewMagic: (String) -> Unit) {
+    Section("Magical tactile feedback") {
+        Text(
+            "Swaps the plain graded taps for OPLUS effects that simulate physical events — " +
+                "a strike landing, a switch stepping over, something bursting. Same library " +
+                "the O-Haptics demo in system settings uses, driven by the music instead.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Chip("Off", magicPreset.isEmpty(), true) { EngineState.magicPreset.value = "" }
+        MagicFeedback.presets.forEach { preset ->
+            val selected = preset.id == magicPreset
+            Card {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { EngineState.magicPreset.value = preset.id }
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            preset.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                        IconButton(onClick = { onPreviewMagic(preset.id) }) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = "Try ${preset.title}")
+                        }
+                    }
+                    Text(preset.blurb, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        MagicFeedback.explain(preset).joinToString("  /  "),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            }
+        }
+        Text(
+            "These run several times longer than a tap, so each preset carries its own rate " +
+                "limit and drops onsets that would overlap. Beat or Hybrid suits them better " +
+                "than Onsets.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
 }
 
 @Composable

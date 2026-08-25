@@ -54,6 +54,7 @@ object EngineState {
         bypassSystemScaling = false,
         backendChoice = BackendChoice.AUTO,
         theme = AppTheme.DARK,
+        magicPreset = "",
     )
 
     // --- live engine readings, never persisted ---
@@ -85,6 +86,9 @@ object EngineState {
     val backendChoice = MutableStateFlow(DEFAULTS.backendChoice)
     val theme = MutableStateFlow(DEFAULTS.theme)
 
+    /** MagicFeedback preset id, or "" for off. */
+    val magicPreset = MutableStateFlow(DEFAULTS.magicPreset)
+
     fun snapshot(): SettingsSnapshot = SettingsSnapshot(
         mode = mode.value,
         source = source.value,
@@ -100,6 +104,7 @@ object EngineState {
         bypassSystemScaling = bypassSystemScaling.value,
         backendChoice = backendChoice.value,
         theme = theme.value,
+        magicPreset = magicPreset.value,
     )
 
     fun applySnapshot(s: SettingsSnapshot) {
@@ -117,6 +122,7 @@ object EngineState {
         bypassSystemScaling.value = s.bypassSystemScaling
         backendChoice.value = s.backendChoice
         theme.value = s.theme
+        magicPreset.value = s.magicPreset
     }
 
     fun resetToDefaults() = applySnapshot(DEFAULTS)
@@ -139,6 +145,7 @@ object EngineState {
         backendChoice.value =
             enumOr(p.getString("backendChoice", null), BackendChoice.entries, DEFAULTS.backendChoice)
         theme.value = enumOr(p.getString("theme", null), AppTheme.entries, DEFAULTS.theme)
+        magicPreset.value = p.getString("magicPreset", DEFAULTS.magicPreset) ?: DEFAULTS.magicPreset
     }
 
     fun save(context: Context) {
@@ -158,6 +165,7 @@ object EngineState {
             putBoolean("bypassSystemScaling", s.bypassSystemScaling)
             putString("backendChoice", s.backendChoice.name)
             putString("theme", s.theme.name)
+            putString("magicPreset", s.magicPreset)
         }.apply()
     }
 
