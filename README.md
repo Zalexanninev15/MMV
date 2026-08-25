@@ -1,8 +1,16 @@
 # Magic Music V
 
-![platform](https://img.shields.io/badge/platform-Android_12%2B*-3DDC84.svg?logo=android)
-![version](https://img.shields.io/badge/version-0.4_alpha-orange)
-![license](https://img.shields.io/badge/license-MIT-blue)
+![](https://img.shields.io/badge/platform-Android_12%2B*-3DDC84.svg?logo=android)
+[![](https://img.shields.io/badge/written_on-Kotlin-7F52FF.svg?logo=Kotlin&logoColor=white)](https://github.com/Zalexanninev15/MMV)
+[![](https://img.shields.io/github/release/Zalexanninev15/MMV)](https://github.com/Zalexanninev15/MMV/releases/latest)
+[![](https://img.shields.io/github/downloads/Zalexanninev15/MMV/total.svg)](https://github.com/Zalexanninev15/MMV/releases)
+[![](https://img.shields.io/github/last-commit/Zalexanninev15/MMV/main.svg)](https://github.com/Zalexanninev15/MMV/commits/main)
+[![](https://img.shields.io/github/stars/Zalexanninev15/MMV.svg)](https://github.com/Zalexanninev15/MMV/stargazers)
+[![](https://img.shields.io/github/forks/Zalexanninev15/MMV.svg)](https://github.com/Zalexanninev15/MMV/network/members)
+[![](https://img.shields.io/github/issues/Zalexanninev15/MMV.svg)](https://github.com/Zalexanninev15/MMV/issues?q=is%3Aopen+is%3Aissue)
+[![](https://img.shields.io/github/issues-closed/Zalexanninev15/MMV.svg)](https://github.com/Zalexanninev15/MMV/issues?q=is%3Aissue+is%3Aclosed)
+[![](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![](https://img.shields.io/badge/Donate-FFDD00.svg?logo=buymeacoffee&logoColor=black)](https://z15.neocities.org/donate)
 
 Android app that **taps** the vibration motor in time with whatever music is playing —
 discrete, graded knocks, not a continuous buzz. **Magic Music V** for creating pleasant tactile feedback when playing music and videos (and in the future). It focuses on devices with the best vibration functions. Other devices from different brands are accepted. Perhaps in the future, there will be support not only for Android smartphones, but also for other devices with tactile response or something similar. If I can afford to buy a MacBook Pro M4 Pro/M3 Pro, then I would like to try to implement this on it via the touchpad, if possible, of course, because I have heard that tactile feedback on modern MacBooks has already been implemented. I can't promise anything on the iPhone, because I don't have it at my disposal and I don't plan to buy it, but if you can send it to me for free or test it yourself, I'll do the same, but only after buying the MacBook.
@@ -109,28 +117,11 @@ If predicted beats feel slightly loose on an OPLUS phone, that is why — not th
 - **Hybrid** — grid carries the pulse, mid/high onsets ride on top at 70 % scale, and
   low-band onsets landing on a grid beat are suppressed so you don't get a double-tap.
 
----
-
-## OnePlus / realme notes
-
-These three are the same OPLUS platform underneath, and they need handling AOSP doesn't.
-
-**The system will freeze the app.** A foreground service is not a promise on ColorOS,
-OxygenOS or realme UI. The battery layer suspends apps that aren't whitelisted once the
-screen goes off — no ANR, no log line, no callback, the audio thread just stops being
-scheduled and the taps stop. There's no API to detect it, so the app shows a card with
-two buttons:
-
-- **Unrestrict battery** → the standard `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` dialog.
-- **Auto-start** → the ColorOS auto-start list. That component has moved with nearly every
-  ColorOS release and has no stable action, so `OemSupport` walks a list of known
-  `ComponentName`s newest-first and falls back to the app info page.
-
-Both are needed. One alone is not enough.
+## Some notes
 
 **System vibration intensity scales on top of yours.** Settings → Sounds & vibration →
 Vibration intensity multiplies every app's output. If the taps feel weak at 100 %
-in-app, that slider is usually why. On the O-Haptics backend there is now an **Ignore system
+in-app, that slider is usually why. On the O-Haptics backend - **Ignore system
 vibration intensity** switch, which detaches the effect from that slider.
 
 **Motor tiers.** The app probes `arePrimitivesSupported()` at launch and tells you which
@@ -172,53 +163,11 @@ permission fixes this — the block is on the playing app's side.
 `AudioSource.UNPROCESSED` to bypass AGC and noise suppression, both of which flatten
 transients — the only thing this app measures.
 
----
-
-## Interface
-
-Three tabs, split by how often you touch them:
-
-- **Play** — meters, source, mode, Start/Stop. Everything needed mid-song.
-- **Tune** — bands, intensity, sensitivity, timing offset, effect lab. Adjusted while
-  listening.
-- **Setup** — engine detection, theme, profiles, background-restriction card, diagnostics.
-  Touched once.
-
-**Themes:** Dark and Light, both using Material You colour from your wallpaper.
-
-**About** carries the version, links to the repository and Mastodon, and a **Check for
-updates** button. It reads GitHub Releases and compares against the running build. Tags are
-`v{version}`, so `v0.4` matches this release. The check queries `/releases/latest` first and
-falls back to the full release list, because `/releases/latest` returns 404 when every
-release is marked pre-release. Comparison is numeric per component, so `v0.10` correctly
-beats `v0.4`.
-
-### Profiles, import and export
-
-Named profiles live in their own preferences file, deliberately separate from the live
-settings: **Reset to defaults** wipes your current tuning without taking saved profiles with
-it.
-
-Export and import go through the Storage Access Framework — no storage permission, and you
-choose where the file lands. The format is JSON with a `format` marker, and enums are written
-**by name, not ordinal**: if a later release inserts a new mode into the middle of an enum, an
-old profile still loads correctly instead of silently selecting the wrong thing. Unknown names
-fall back to defaults and out-of-range numbers are clamped. Import accepts any MIME type
-because some file managers hand JSON back as `application/octet-stream`; the format check
-happens on the contents.
-
 ### Diagnostics
 
 The Setup tab shows the full haptics report — device, AOSP primitive support with durations,
 envelope and frequency capability, and everything the vendor probe resolved including the
-effect constant list. There is a Copy button.
-
-It deliberately does not live in logcat: OxygenOS and ColorOS suppress third-party app log
-output unless full logging is enabled in the engineering menu, which makes `adb logcat` the
-one place a diagnostic must not be. A copy is still written to
-`Android/data/<package>/files/haptics-report.txt` for pulling over adb.
-
----
+effect constant list. 
 
 ## Build
 
