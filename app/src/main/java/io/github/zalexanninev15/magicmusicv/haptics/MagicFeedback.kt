@@ -104,17 +104,18 @@ object MagicFeedback {
             title = "Ripple",
             blurb = "Something dropped into water. The surface keeps moving after the hit lands.",
             low = listOf(
-                "EFFECT_GAME_CUSTOM_VIBRATION_MICROWAVE_RIPPLES",
                 "EFFECT_OTHER_WATERRIPPLE",
+                "EFFECT_CUSTOMIZED_BREATHE_SPREAD_OUT",
+                "EFFECT_GAME_CUSTOM_VIBRATION_MICROWAVE_RIPPLES",
                 "EFFECT_MODERATE_SHORT_VIBRATE_ONCE",
             ),
             mid = listOf(
-                "EFFECT_OTHER_WATERRIPPLE",
-                "EFFECT_CUSTOMIZED_BREATHE_SPREAD_OUT",
+                "EFFECT_CUSTOMIZED_SPREAD_OUT",
+                "EFFECT_OTHER_BIG_SCALE",
                 "EFFECT_WEAK_SHORT_VIBRATE_ONCE",
             ),
             high = listOf(
-                "EFFECT_CUSTOMIZED_WEAK_GRANULAR",
+                "EFFECT_CUSTOMIZED_CONVERGE",
                 "EFFECT_OTHER_SMALL_SCALE",
                 "EFFECT_WEAKEST_SHORT_VIBRATE_ONCE",
             ),
@@ -126,18 +127,20 @@ object MagicFeedback {
             title = "Grain",
             blurb = "Coarse texture, like dragging a fingernail across a ridged surface.",
             low = listOf(
+                "EFFECT_CUSTOMIZED_RUSH_LEFT_TO_RIGHT",
+                "EFFECT_OTHER_STYLESWITCH",
                 "EFFECT_CUSTOMIZED_STRONG_GRANULAR",
-                "EFFECT_GAME_CUSTOM_VIBRATION_STEPS",
                 "EFFECT_MODERATE_SHORT_VIBRATE_ONCE",
             ),
             mid = listOf(
+                "EFFECT_CUSTOMIZED_THREE_DIMENSION_TOUCH",
+                "EFFECT_OTHER_STYLESWITCH_SOFT",
                 "EFFECT_CUSTOMIZED_WEAK_GRANULAR",
-                "EFFECT_GAME_CUSTOM_VIBRATION_CRISP",
                 "EFFECT_WEAK_SHORT_VIBRATE_ONCE",
             ),
             high = listOf(
                 "EFFECT_OTHER_KEYBOARD_WEAK",
-                "EFFECT_GAME_CUSTOM_VIBRATION_WEAK",
+                "EFFECT_OTHER_SMALL_SCALE",
                 "EFFECT_WEAKEST_SHORT_VIBRATE_ONCE",
             ),
             gapLow = 130, gapMid = 95, gapHigh = 65,
@@ -153,7 +156,11 @@ object MagicFeedback {
     fun resolve(preset: MagicPreset): IntArray? {
         if (!OplusHaptics.available) return null
         val c = OplusHaptics.effectConstants
-        fun pick(names: List<String>): Int? = names.firstNotNullOfOrNull { c[it] }
+        // Skip ids that have already been refused at runtime, so a preset falls through to
+        // its next candidate instead of staying silent.
+        fun pick(names: List<String>): Int? =
+            names.firstNotNullOfOrNull { c[it]?.takeUnless { id -> OplusHaptics.isKnownBad(id) } }
+                ?: names.firstNotNullOfOrNull { c[it] }
         val lo = pick(preset.low) ?: return null
         val mi = pick(preset.mid) ?: lo
         val hi = pick(preset.high) ?: mi
@@ -167,7 +174,9 @@ object MagicFeedback {
     fun explain(preset: MagicPreset): List<String> {
         val c = OplusHaptics.effectConstants
         fun name(names: List<String>): String {
-            val n = names.firstOrNull { c.containsKey(it) } ?: return "unavailable"
+            val n = names.firstOrNull { k -> c[k]?.let { !OplusHaptics.isKnownBad(it) } == true }
+                ?: names.firstOrNull { c.containsKey(it) }
+                ?: return "unavailable"
             return "${n.removePrefix("EFFECT_")} ${c[n]}"
         }
         return listOf(name(preset.low), name(preset.mid), name(preset.high))

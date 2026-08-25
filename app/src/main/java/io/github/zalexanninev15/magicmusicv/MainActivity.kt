@@ -18,6 +18,7 @@ import io.github.zalexanninev15.magicmusicv.haptics.HapticEngine
 import io.github.zalexanninev15.magicmusicv.haptics.HapticsReport
 import io.github.zalexanninev15.magicmusicv.haptics.OplusHaptics
 import io.github.zalexanninev15.magicmusicv.service.HapticService
+import io.github.zalexanninev15.magicmusicv.settings.ProfileStore
 import io.github.zalexanninev15.magicmusicv.settings.SettingsCodec
 import io.github.zalexanninev15.magicmusicv.ui.MagicMusicScreen
 import java.io.File
@@ -49,15 +50,32 @@ class MainActivity : ComponentActivity() {
 
     // Storage Access Framework rather than a path in external storage: no permission is
     // needed, the user picks where the file goes, and it survives scoped-storage rules.
+    /**
+     * Which profile the pending export refers to, or null for the live settings.
+     *
+     * The SAF contract gives no way to carry a payload through to the callback, so the
+     * choice has to be parked here between launching the picker and the result arriving.
+     */
+    private var exportProfileName: String? = null
+
     private val exportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
+        val profile = exportProfileName
+        exportProfileName = null
         if (uri == null) return@registerForActivityResult
         runCatching {
+            val snapshot = if (profile == null) {
+                EngineState.snapshot()
+            } else {
+                ProfileStore.load(this, profile, EngineState.DEFAULTS)
+                    ?: error("Profile \"$profile\" is unreadable")
+            }
             contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(SettingsCodec.encode(EngineState.snapshot()).toByteArray())
+                out.write(SettingsCodec.encode(snapshot).toByteArray())
             } ?: error("Could not open the file for writing")
-            EngineState.notice.value = "Settings exported"
+            EngineState.notice.value =
+                if (profile == null) "Settings exported" else "Exported \"$profile\""
         }.onFailure { EngineState.error.value = "Export failed: ${it.message}" }
     }
 
@@ -144,7 +162,14 @@ class MainActivity : ComponentActivity() {
                     engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
                     engine.preview()
                 },
-                onExport = { exportLauncher.launch("magic-music-v-settings.json") },
+                onExport = {
+                    exportProfileName = null
+                    exportLauncher.launch("magic-music-v-settings.json")
+                },
+                onExportProfile = { name ->
+                    exportProfileName = name
+                    exportLauncher.launch("${name.replace(Regex("[^A-Za-z0-9._-]"), "_")}.json")
+                },
                 // Some file managers hand JSON back as octet-stream, so the filter stays wide
                 // and the format check happens on the contents instead.
                 onImport = { importLauncher.launch(arrayOf("*/*")) },

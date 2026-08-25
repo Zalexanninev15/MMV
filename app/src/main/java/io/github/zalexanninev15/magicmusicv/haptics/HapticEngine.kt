@@ -245,7 +245,11 @@ class HapticEngine(context: Context) {
         val preset = MagicFeedback.byId(presetId) ?: return false
         val ids = MagicFeedback.resolve(preset) ?: return false
         val id = ids.getOrNull(band) ?: return false
-        return OplusHaptics.vibrate(id, OplusHaptics.strengthStrong, bypassSystemScaling)
+        if (OplusHaptics.vibrate(id, OplusHaptics.strengthStrong, bypassSystemScaling)) return true
+        // Same self-repair as previewMagic: the failure is now recorded, so re-resolve.
+        val retry = MagicFeedback.resolve(preset)?.getOrNull(band) ?: return false
+        if (retry == id) return false
+        return OplusHaptics.vibrate(retry, OplusHaptics.strengthStrong, bypassSystemScaling)
     }
 
     /** Fires a short demo of a preset: kick, hat, snare, hat, kick. */
@@ -259,13 +263,22 @@ class HapticEngine(context: Context) {
             Triple(ids[2], OplusHaptics.strengthLight, preset.gapHigh + 120),
             Triple(ids[0], OplusHaptics.strengthStrong, preset.gapLow + 120),
         )
+        // If the leading effect is refused, OplusHaptics has now recorded it and re-resolving
+        // picks the preset's next candidate — so the demo repairs itself within one tap
+        // instead of reporting a dead preset.
+        if (!OplusHaptics.vibrate(ids[0], OplusHaptics.strengthStrong, bypassSystemScaling)) {
+            val retry = MagicFeedback.resolve(preset) ?: return false
+            if (!retry.contentEquals(ids)) return previewMagic(presetId)
+            return false
+        }
+
         var at = 0L
         var firstOk = true
         for ((id, strength, delay) in steps) {
             at += delay
             if (at == 0L) {
-                // Only the immediate one can report back; the rest are on the scheduler.
-                firstOk = OplusHaptics.vibrate(id, strength, bypassSystemScaling)
+                // Already fired above as the probe for this preset.
+                continue
             } else {
                 scheduler.schedule(
                     { OplusHaptics.vibrate(id, strength, bypassSystemScaling) },

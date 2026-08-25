@@ -17,7 +17,8 @@ enum class Mode {
     HYBRID,
 }
 
-enum class AppTheme { DARK, LIGHT }
+/** SYSTEM follows the device setting; all three use Material You dynamic colour. */
+enum class AppTheme { SYSTEM, DARK, LIGHT }
 
 /**
  * One process-wide state holder shared by the UI and the service.
@@ -53,7 +54,7 @@ object EngineState {
         effectHigh = 0,     // EFFECT_WEAKEST_SHORT_VIBRATE_ONCE
         bypassSystemScaling = false,
         backendChoice = BackendChoice.AUTO,
-        theme = AppTheme.DARK,
+        theme = AppTheme.SYSTEM,
         magicPreset = "",
     )
 

@@ -188,6 +188,20 @@ object OplusHaptics {
      * intensity. Worth having, because otherwise the app's own intensity slider is silently
      * multiplied by a system slider the user forgot about.
      */
+    /**
+     * Effect ids this ROM refused at runtime.
+     *
+     * Resolution by constant name only proves an id exists, not that the vendor service will
+     * act on it — some families appear to be reserved for system callers. Once an id has
+     * failed, presets skip it and fall through to their next candidate, so a preset repairs
+     * itself instead of staying dead.
+     */
+    private val failed = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+
+    fun isKnownBad(effectId: Int): Boolean = failed.contains(effectId)
+
+    fun forgetFailures() = failed.clear()
+
     /** Why the last [vibrate] attempt failed, or null. Surfaced in the UI. */
     @Volatile
     var lastError: String? = null
@@ -233,6 +247,7 @@ object OplusHaptics {
             }
             last = r.exceptionOrNull()
         }
+        failed.add(effectType)
         val cause = generateSequence(last) { it.cause }.last()
         lastError = "effect $effectType rejected: ${cause.javaClass.simpleName}: ${cause.message}"
         Log.w(TAG, "vibrate($effectType) failed after ${attempts.size} attempts", last)

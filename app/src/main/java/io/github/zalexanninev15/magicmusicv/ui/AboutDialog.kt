@@ -5,20 +5,18 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,41 +67,33 @@ fun AboutDialog(version: String, onDismiss: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                 )
 
-                // Outlined, with a leading icon each. As bare TextButtons these were three
-                // stacked lines of tinted text with no edges — they did not read as controls.
-                OutlinedButton(
-                    onClick = { open(UpdateChecker.REPO_URL) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Repository")
+                // Three icons on one line. Stacked full-width buttons pushed the version
+                // and description off the top of the dialog on a phone screen.
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    FilledTonalIconButton(onClick = { open(UpdateChecker.REPO_URL) }) {
+                        Icon(Icons.Filled.Share, contentDescription = "Repository")
+                    }
+                    FilledTonalIconButton(onClick = { open(UpdateChecker.MASTODON_URL) }) {
+                        Icon(Icons.Filled.AccountCircle, contentDescription = "Mastodon")
+                    }
+                    FilledTonalIconButton(
+                        enabled = !checking,
+                        onClick = {
+                            checking = true
+                            result = null
+                            scope.launch {
+                                result = UpdateChecker.check(version)
+                                checking = false
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Check for updates")
+                    }
                 }
-
-                OutlinedButton(
-                    onClick = { open(UpdateChecker.MASTODON_URL) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.AccountCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Mastodon")
-                }
-
-                OutlinedButton(
-                    enabled = !checking,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        checking = true
-                        result = null
-                        scope.launch {
-                            result = UpdateChecker.check(version)
-                            checking = false
-                        }
-                    },
-                ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (checking) "Checking…" else "Check for updates")
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Repo", style = MaterialTheme.typography.labelSmall)
+                    Text("Mastodon", style = MaterialTheme.typography.labelSmall)
+                    Text(if (checking) "Checking" else "Updates", style = MaterialTheme.typography.labelSmall)
                 }
 
                 result?.let { r ->
@@ -114,18 +104,11 @@ fun AboutDialog(version: String, onDismiss: () -> Unit) {
                     }
                     Text(line, style = MaterialTheme.typography.bodySmall)
                     if (r.newer && r.url != null) {
-                        OutlinedButton(
-                            onClick = { open(r.url) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Open release")
-                        }
+                        Button(onClick = { open(r.url) }) { Text("Open release") }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { Button(onClick = onDismiss) { Text("Close") } },
     )
 }

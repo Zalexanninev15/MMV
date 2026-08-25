@@ -2,6 +2,7 @@ package io.github.zalexanninev15.magicmusicv.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,7 +19,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -28,7 +28,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
@@ -83,14 +84,19 @@ fun MagicMusicScreen(
     onStop: () -> Unit,
     onPreview: () -> Unit,
     onExport: () -> Unit,
+    onExportProfile: (String) -> Unit,
     onImport: () -> Unit,
 ) {
     val context = LocalContext.current
     val theme by EngineState.theme.collectAsState()
-    val colors = when (theme) {
-        AppTheme.DARK -> dynamicDarkColorScheme(context)
-        AppTheme.LIGHT -> dynamicLightColorScheme(context)
+    // Material You throughout: the palette is derived from the wallpaper on every option,
+    // so the setting only chooses light or dark, not a different colour system.
+    val dark = when (theme) {
+        AppTheme.SYSTEM -> isSystemInDarkTheme()
+        AppTheme.DARK -> true
+        AppTheme.LIGHT -> false
     }
+    val colors = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
 
     MaterialTheme(colorScheme = colors) {
         var tab by remember { mutableStateOf(Tab.PLAY) }
@@ -119,8 +125,12 @@ fun MagicMusicScreen(
                     Text("Magic Music V", style = MaterialTheme.typography.headlineSmall)
                     // Tonal fill rather than a bare TextButton: as plain text next to a
                     // headline it read as a label, not something you could press.
-                    OutlinedIconButton(onClick = { showAbout = true }) {
-                        Icon(Icons.Filled.Info, contentDescription = "About")
+                    IconButton(onClick = { showAbout = true }) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = "About",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
 
@@ -151,7 +161,7 @@ fun MagicMusicScreen(
                         )
                         Tab.SETUP -> SetupTab(
                             tier, report, oplusAvailable, primitiveCount,
-                            autoBackend, autoReason, running, onExport, onImport,
+                            autoBackend, autoReason, running, onExport, onExportProfile, onImport,
                         )
                     }
                     Spacer(Modifier.height(32.dp))
@@ -269,11 +279,11 @@ private fun OplusBackgroundCard() {
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = {
+                FilledTonalButton(onClick = {
                     OemSupport.requestBatteryUnrestricted(context)
                     batteryOk = OemSupport.isBatteryUnrestricted(context)
                 }) { Text("Unrestrict battery") }
-                TextButton(onClick = { OemSupport.openAutoStartSettings(context) }) {
+                FilledTonalButton(onClick = { OemSupport.openAutoStartSettings(context) }) {
                     Text("Auto-start")
                 }
             }
@@ -413,7 +423,7 @@ private fun MagicSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
                             )
-                            TextButton(onClick = { onPreviewMagicBand(preset.id, band) }) {
+                            OutlinedButton(onClick = { onPreviewMagicBand(preset.id, band) }) {
                                 Text("Test")
                             }
                         }
@@ -476,9 +486,18 @@ private fun EffectLab(
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { onPreviewEffect(selected, 0) }) { Text("Light") }
-            TextButton(onClick = { onPreviewEffect(selected, 1) }) { Text("Medium") }
-            TextButton(onClick = { onPreviewEffect(selected, 2) }) { Text("Strong") }
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = { onPreviewEffect(selected, 0) },
+            ) { Text("Light") }
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = { onPreviewEffect(selected, 1) },
+            ) { Text("Medium") }
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = { onPreviewEffect(selected, 2) },
+            ) { Text("Strong") }
         }
         Text("Assign $selected to:", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -501,6 +520,7 @@ private fun SetupTab(
     autoReason: String,
     running: Boolean,
     onExport: () -> Unit,
+    onExportProfile: (String) -> Unit,
     onImport: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -571,9 +591,14 @@ private fun SetupTab(
 
     Section("Theme") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("System", theme == AppTheme.SYSTEM, true) { EngineState.theme.value = AppTheme.SYSTEM }
             Chip("Dark", theme == AppTheme.DARK, true) { EngineState.theme.value = AppTheme.DARK }
             Chip("Light", theme == AppTheme.LIGHT, true) { EngineState.theme.value = AppTheme.LIGHT }
         }
+        Text(
+            "Material You: colours come from your wallpaper.",
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 
     Section("Profiles") {
@@ -603,37 +628,57 @@ private fun SetupTab(
             Text("No saved profiles yet.", style = MaterialTheme.typography.bodySmall)
         } else {
             profiles.forEach { p ->
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(p, style = MaterialTheme.typography.bodyMedium)
-                    Row {
-                        TextButton(onClick = {
-                            val s = ProfileStore.load(context, p, EngineState.DEFAULTS)
-                            if (s != null) {
-                                EngineState.applySnapshot(s)
-                                EngineState.save(context)
-                                EngineState.notice.value = "Loaded \"$p\""
-                            } else {
-                                EngineState.error.value = "Profile \"$p\" is unreadable"
-                            }
-                        }) { Text("Load") }
-                        TextButton(onClick = {
-                            ProfileStore.delete(context, p)
-                            profiles = ProfileStore.list(context)
-                        }) { Text("Delete") }
+                Card {
+                    Column(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(p, style = MaterialTheme.typography.titleSmall)
+                        // Name above, actions below: three buttons plus a name on one row
+                        // squeezed the labels until they wrapped on a phone.
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    val s = ProfileStore.load(context, p, EngineState.DEFAULTS)
+                                    if (s != null) {
+                                        EngineState.applySnapshot(s)
+                                        EngineState.save(context)
+                                        EngineState.notice.value = "Loaded \"$p\""
+                                    } else {
+                                        EngineState.error.value = "Profile \"$p\" is unreadable"
+                                    }
+                                },
+                            ) { Text("Load") }
+                            FilledTonalButton(
+                                modifier = Modifier.weight(1f),
+                                onClick = { onExportProfile(p) },
+                            ) { Text("Export") }
+                            OutlinedButton(
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    ProfileStore.delete(context, p)
+                                    profiles = ProfileStore.list(context)
+                                    EngineState.notice.value = "Deleted \"$p\""
+                                },
+                            ) { Text("Delete") }
+                        }
                     }
                 }
             }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onExport) { Text("Export…") }
-            TextButton(onClick = onImport) { Text("Import…") }
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = onExport,
+            ) { Text("Export all") }
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = onImport,
+            ) { Text("Import") }
         }
-        TextButton(onClick = {
+        OutlinedButton(onClick = {
             EngineState.resetToDefaults()
             EngineState.save(context)
             EngineState.notice.value = "Settings reset to defaults"
@@ -647,10 +692,12 @@ private fun SetupTab(
     Section("Diagnostics") {
         var show by remember { mutableStateOf(false) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { show = !show }) {
+            FilledTonalButton(onClick = { show = !show }) {
                 Text(if (show) "Hide report" else "Haptics report")
             }
-            TextButton(onClick = { clipboard.setText(AnnotatedString(report)) }) { Text("Copy") }
+            FilledTonalButton(
+                onClick = { clipboard.setText(AnnotatedString(report)) },
+            ) { Text("Copy") }
         }
         if (show) {
             Card {
