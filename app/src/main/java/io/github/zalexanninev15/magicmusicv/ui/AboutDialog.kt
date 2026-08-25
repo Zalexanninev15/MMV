@@ -5,8 +5,17 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,11 +69,29 @@ fun AboutDialog(version: String, onDismiss: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                 )
 
-                TextButton(onClick = { open(UpdateChecker.REPO_URL) }) { Text("Repository") }
-                TextButton(onClick = { open(UpdateChecker.MASTODON_URL) }) { Text("Mastodon") }
+                // Outlined, with a leading icon each. As bare TextButtons these were three
+                // stacked lines of tinted text with no edges — they did not read as controls.
+                OutlinedButton(
+                    onClick = { open(UpdateChecker.REPO_URL) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Repository")
+                }
 
-                TextButton(
+                OutlinedButton(
+                    onClick = { open(UpdateChecker.MASTODON_URL) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.AccountCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Mastodon")
+                }
+
+                OutlinedButton(
                     enabled = !checking,
+                    modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         checking = true
                         result = null
@@ -73,7 +100,11 @@ fun AboutDialog(version: String, onDismiss: () -> Unit) {
                             checking = false
                         }
                     },
-                ) { Text(if (checking) "Checking…" else "Check for updates") }
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (checking) "Checking…" else "Check for updates")
+                }
 
                 result?.let { r ->
                     val line = when {
@@ -83,7 +114,14 @@ fun AboutDialog(version: String, onDismiss: () -> Unit) {
                     }
                     Text(line, style = MaterialTheme.typography.bodySmall)
                     if (r.newer && r.url != null) {
-                        TextButton(onClick = { open(r.url) }) { Text("Open release") }
+                        OutlinedButton(
+                            onClick = { open(r.url) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Open release")
+                        }
                     }
                 }
             }

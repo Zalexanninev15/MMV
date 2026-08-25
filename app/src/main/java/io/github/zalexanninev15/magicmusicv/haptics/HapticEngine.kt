@@ -235,10 +235,23 @@ class HapticEngine(context: Context) {
         }
     }
 
+    /**
+     * Fires one band of a preset on its own, at full strength.
+     *
+     * The per-band test exists because a preset that stays silent gives no clue which of its
+     * three effects the ROM refused; firing them individually narrows it in one tap.
+     */
+    fun previewMagicBand(presetId: String, band: Int): Boolean {
+        val preset = MagicFeedback.byId(presetId) ?: return false
+        val ids = MagicFeedback.resolve(preset) ?: return false
+        val id = ids.getOrNull(band) ?: return false
+        return OplusHaptics.vibrate(id, OplusHaptics.strengthStrong, bypassSystemScaling)
+    }
+
     /** Fires a short demo of a preset: kick, hat, snare, hat, kick. */
-    fun previewMagic(presetId: String) {
-        val preset = MagicFeedback.byId(presetId) ?: return
-        val ids = MagicFeedback.resolve(preset) ?: return
+    fun previewMagic(presetId: String): Boolean {
+        val preset = MagicFeedback.byId(presetId) ?: return false
+        val ids = MagicFeedback.resolve(preset) ?: return false
         val steps = listOf(
             Triple(ids[0], OplusHaptics.strengthStrong, 0),
             Triple(ids[2], OplusHaptics.strengthLight, preset.gapHigh + 120),
@@ -247,10 +260,12 @@ class HapticEngine(context: Context) {
             Triple(ids[0], OplusHaptics.strengthStrong, preset.gapLow + 120),
         )
         var at = 0L
+        var firstOk = true
         for ((id, strength, delay) in steps) {
             at += delay
             if (at == 0L) {
-                OplusHaptics.vibrate(id, strength, bypassSystemScaling)
+                // Only the immediate one can report back; the rest are on the scheduler.
+                firstOk = OplusHaptics.vibrate(id, strength, bypassSystemScaling)
             } else {
                 scheduler.schedule(
                     { OplusHaptics.vibrate(id, strength, bypassSystemScaling) },
@@ -258,6 +273,7 @@ class HapticEngine(context: Context) {
                 )
             }
         }
+        return firstOk
     }
 
     /**

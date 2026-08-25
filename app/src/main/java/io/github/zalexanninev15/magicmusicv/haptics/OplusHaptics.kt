@@ -188,21 +188,58 @@ object OplusHaptics {
      * intensity. Worth having, because otherwise the app's own intensity slider is silently
      * multiplied by a system slider the user forgot about.
      */
+    /** Why the last [vibrate] attempt failed, or null. Surfaced in the UI. */
+    @Volatile
+    var lastError: String? = null
+        private set
+
+    /**
+     * Fires one effect.
+     *
+     * Tried as a ladder rather than a single call. `build()` throws on this ROM for some
+     * effect families when an optional setter is present that the effect does not accept —
+     * and because every setter is invoked reflectively, one rejected setter takes the whole
+     * effect down silently. Dropping the optional setters one at a time recovers those.
+     *
+     * A note on what this cannot detect: the vendor service may accept the call and simply
+     * not vibrate, for effects it reserves for system callers. That returns true here.
+     * If a preset resolves and reports no error but you feel nothing, that is the case.
+     */
     fun vibrate(effectType: Int, strength: Int? = null, bypassSystemScaling: Boolean = false): Boolean {
-        if (!available) return false
-        return runCatching {
-            val b = builderClass!!.getDeclaredConstructor().newInstance()
-            setEffectType!!.invoke(b, effectType)
-            strength?.let { setEffectStrength?.invoke(b, it) }
-            setAsynchronous?.invoke(b, true)
-            if (bypassSystemScaling) setStrengthSettingEnabled?.invoke(b, false)
-            vibrateMethod!!.invoke(service, build!!.invoke(b))
-            true
-        }.getOrElse {
-            Log.w(TAG, "vibrate($effectType) failed", it)
-            false
+        if (!available) {
+            lastError = "vendor engine unavailable"
+            return false
         }
+        val attempts = listOf(
+            Attempt(strength, async = true, bypass = bypassSystemScaling),
+            Attempt(strength, async = true, bypass = false),
+            Attempt(strength, async = false, bypass = false),
+            Attempt(null, async = true, bypass = false),
+            Attempt(null, async = false, bypass = false),
+        )
+        var last: Throwable? = null
+        for (a in attempts) {
+            val r = runCatching {
+                val b = builderClass!!.getDeclaredConstructor().newInstance()
+                setEffectType!!.invoke(b, effectType)
+                a.strength?.let { setEffectStrength?.invoke(b, it) }
+                if (a.async) setAsynchronous?.invoke(b, true)
+                if (a.bypass) setStrengthSettingEnabled?.invoke(b, false)
+                vibrateMethod!!.invoke(service, build!!.invoke(b))
+            }
+            if (r.isSuccess) {
+                lastError = null
+                return true
+            }
+            last = r.exceptionOrNull()
+        }
+        val cause = generateSequence(last) { it.cause }.last()
+        lastError = "effect $effectType rejected: ${cause.javaClass.simpleName}: ${cause.message}"
+        Log.w(TAG, "vibrate($effectType) failed after ${attempts.size} attempts", last)
+        return false
     }
+
+    private data class Attempt(val strength: Int?, val async: Boolean, val bypass: Boolean)
 
     fun cancel() {
         if (!available) return

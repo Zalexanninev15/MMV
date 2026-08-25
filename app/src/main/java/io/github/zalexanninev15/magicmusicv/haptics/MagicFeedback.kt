@@ -160,11 +160,16 @@ object MagicFeedback {
         return intArrayOf(lo, mi, hi)
     }
 
-    /** Which named effect each band actually landed on, for showing in the UI. */
+    /**
+     * Which named effect each band actually landed on, with its id, for showing in the UI.
+     * The id is included so a silent preset can be cross-checked in the effect lab.
+     */
     fun explain(preset: MagicPreset): List<String> {
         val c = OplusHaptics.effectConstants
-        fun name(names: List<String>): String =
-            names.firstOrNull { c.containsKey(it) }?.removePrefix("EFFECT_") ?: "unavailable"
+        fun name(names: List<String>): String {
+            val n = names.firstOrNull { c.containsKey(it) } ?: return "unavailable"
+            return "${n.removePrefix("EFFECT_")} ${c[n]}"
+        }
         return listOf(name(preset.low), name(preset.mid), name(preset.high))
     }
 

@@ -18,7 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -78,6 +78,7 @@ fun MagicMusicScreen(
     tapCandidates: List<Pair<String, Int>>,
     onPreviewEffect: (Int, Int) -> Unit,
     onPreviewMagic: (String) -> Unit,
+    onPreviewMagicBand: (String, Int) -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onPreview: () -> Unit,
@@ -118,7 +119,7 @@ fun MagicMusicScreen(
                     Text("Magic Music V", style = MaterialTheme.typography.headlineSmall)
                     // Tonal fill rather than a bare TextButton: as plain text next to a
                     // headline it read as a label, not something you could press.
-                    FilledTonalIconButton(onClick = { showAbout = true }) {
+                    OutlinedIconButton(onClick = { showAbout = true }) {
                         Icon(Icons.Filled.Info, contentDescription = "About")
                     }
                 }
@@ -146,7 +147,7 @@ fun MagicMusicScreen(
                         Tab.PLAY -> PlayTab(running, onStart, onStop, onPreview)
                         Tab.TUNE -> TuneTab(
                             oplusAvailable, autoBackend, tapCandidates,
-                            onPreviewEffect, onPreviewMagic,
+                            onPreviewEffect, onPreviewMagic, onPreviewMagicBand,
                         )
                         Tab.SETUP -> SetupTab(
                             tier, report, oplusAvailable, primitiveCount,
@@ -289,6 +290,7 @@ private fun TuneTab(
     tapCandidates: List<Pair<String, Int>>,
     onPreviewEffect: (Int, Int) -> Unit,
     onPreviewMagic: (String) -> Unit,
+    onPreviewMagicBand: (String, Int) -> Unit,
 ) {
     val intensity by EngineState.intensity.collectAsState()
     val sensitivity by EngineState.sensitivity.collectAsState()
@@ -347,7 +349,9 @@ private fun TuneTab(
     }
 
     if (resolved == Backend.OPLUS) {
-        if (MagicFeedback.available) MagicSection(magicPreset, onPreviewMagic)
+        if (MagicFeedback.available) {
+            MagicSection(magicPreset, onPreviewMagic, onPreviewMagicBand)
+        }
         EffectLab(tapCandidates, onPreviewEffect)
     }
 }
@@ -359,7 +363,11 @@ private fun TuneTab(
  * single effect fires per band", this is "what should the phone pretend to be".
  */
 @Composable
-private fun MagicSection(magicPreset: String, onPreviewMagic: (String) -> Unit) {
+private fun MagicSection(
+    magicPreset: String,
+    onPreviewMagic: (String) -> Unit,
+    onPreviewMagicBand: (String, Int) -> Unit,
+) {
     Section("Magical tactile feedback") {
         Text(
             "Swaps the plain graded taps for OPLUS effects that simulate physical events — " +
@@ -394,11 +402,22 @@ private fun MagicSection(magicPreset: String, onPreviewMagic: (String) -> Unit) 
                         }
                     }
                     Text(preset.blurb, style = MaterialTheme.typography.bodySmall)
-                    Text(
-                        MagicFeedback.explain(preset).joinToString("  /  "),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
+                    MagicFeedback.explain(preset).forEachIndexed { band, label ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "${listOf("low ", "mid ", "high")[band]}  $label",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            TextButton(onClick = { onPreviewMagicBand(preset.id, band) }) {
+                                Text("Test")
+                            }
+                        }
+                    }
                 }
             }
         }

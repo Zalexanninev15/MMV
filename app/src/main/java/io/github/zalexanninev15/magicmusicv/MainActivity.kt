@@ -116,7 +116,20 @@ class MainActivity : ComponentActivity() {
                 },
                 onPreviewMagic = { id ->
                     engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
-                    engine.previewMagic(id)
+                    if (!engine.previewMagic(id)) {
+                        EngineState.notice.value =
+                            OplusHaptics.lastError ?: "Preset could not be played"
+                    }
+                },
+                onPreviewMagicBand = { id, band ->
+                    engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
+                    EngineState.notice.value = if (engine.previewMagicBand(id, band)) {
+                        // Accepted by the service. If nothing was felt, the ROM took the call
+                        // and declined to act on it — which is itself the answer.
+                        null
+                    } else {
+                        OplusHaptics.lastError ?: "Effect could not be played"
+                    }
                 },
                 onStart = ::requestAndStart,
                 onStop = { HapticService.stop(this) },
