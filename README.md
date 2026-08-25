@@ -155,9 +155,12 @@ persist.
 
 **System audio** uses `AudioPlaybackCaptureConfiguration` behind the screen-capture
 prompt. Exact and immune to room noise, **but Android only lets it see apps whose capture
-policy allows it.** Local players (Poweramp, AIMP, VLC, Musicolet, Vinyl) are generally
+policy allows it.** Local players (AIMP, VLC, Namida and others) are generally
 capturable. Spotify and YouTube Music set `ALLOW_CAPTURE_BY_NONE` and produce silence. No
-permission fixes this — the block is on the playing app's side.
+permission fixes this — the block is on the playing app's side. In case of problems, you can create a "screen broadcast" for the whole system rather than selecting specific applications, but this will 99% create additional "noise" that will cause the kickback to not work correctly.
+
+> [!TIP]
+> As an application for listening local music, I recommend using [Namida](https://github.com/namidaco/namida), especially when you activate the built-in equalizer with flac.. Just a piece of candy!
 
 **Microphone** works with anything audible on speakers, never on headphones. It opens
 `AudioSource.UNPROCESSED` to bypass AGC and noise suppression, both of which flatten
