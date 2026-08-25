@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import io.github.zalexanninev15.magicmusicv.haptics.HapticTier
 import io.github.zalexanninev15.magicmusicv.haptics.MagicFeedback
+import io.github.zalexanninev15.magicmusicv.haptics.MmvVoicing
 import io.github.zalexanninev15.magicmusicv.haptics.resolveBackend
 import io.github.zalexanninev15.magicmusicv.oem.OemSupport
 import io.github.zalexanninev15.magicmusicv.oem.Vendor
@@ -360,7 +361,11 @@ private fun TuneTab(
 
     if (resolved == Backend.OPLUS) {
         if (MagicFeedback.available) {
-            MagicSection(magicPreset, onPreviewMagic, onPreviewMagicBand)
+            var showMagic by remember { mutableStateOf(magicPreset.isNotEmpty()) }
+            OutlinedButton(onClick = { showMagic = !showMagic }) {
+                Text(if (showMagic) "Hide advanced textures" else "Advanced textures")
+            }
+            if (showMagic) MagicSection(magicPreset, onPreviewMagic, onPreviewMagicBand)
         }
         EffectLab(tapCandidates, onPreviewEffect)
     }
@@ -380,9 +385,9 @@ private fun MagicSection(
 ) {
     Section("Magical tactile feedback") {
         Text(
-            "Swaps the plain graded taps for OPLUS effects that simulate physical events — " +
-                "a strike landing, a switch stepping over, something bursting. Same library " +
-                "the O-Haptics demo in system settings uses, driven by the music instead.",
+            "Experimental, and off by default. These override the backend's own voicing with " +
+                "a single textured effect per band. Several are rejected by the ROM or too " +
+                "long to follow a beat — O-Haptics by MMV is the better starting point.",
             style = MaterialTheme.typography.bodySmall,
         )
         Chip("Off", magicPreset.isEmpty(), true) { EngineState.magicPreset.value = "" }
@@ -535,6 +540,7 @@ private fun SetupTab(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     "Detected: " + when (resolved) {
+                        Backend.OPLUS_MMV -> "O-Haptics by MMV"
                         Backend.OPLUS -> "O-Haptics (vendor)"
                         Backend.AOSP ->
                             if (primitiveCount > 0) "AOSP primitives" else "AOSP one-shots"
@@ -542,6 +548,15 @@ private fun SetupTab(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(autoReason, style = MaterialTheme.typography.bodySmall)
+                if (resolved == Backend.OPLUS_MMV) {
+                    MmvVoicing.describe().forEach {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                }
                 Text(OemSupport.deviceLabel, style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -555,6 +570,9 @@ private fun SetupTab(
                 }
                 Chip("O-Haptics", backendChoice == BackendChoice.OPLUS, !running) {
                     EngineState.backendChoice.value = BackendChoice.OPLUS
+                }
+                Chip("O-Haptics by MMV", backendChoice == BackendChoice.OPLUS_MMV, !running) {
+                    EngineState.backendChoice.value = BackendChoice.OPLUS_MMV
                 }
             }
             Text(

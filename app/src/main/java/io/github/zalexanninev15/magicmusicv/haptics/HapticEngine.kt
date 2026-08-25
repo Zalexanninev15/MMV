@@ -24,7 +24,7 @@ import kotlin.math.pow
  */
 enum class HapticTier { FULL, PARTIAL, VENDOR_ONLY, NONE }
 
-enum class Backend { AOSP, OPLUS }
+enum class Backend { AOSP, OPLUS, OPLUS_MMV }
 
 /**
  * Single source of truth for turning a choice into a backend, shared by the engine, the
@@ -35,6 +35,7 @@ fun resolveBackend(choice: BackendChoice, autoBackend: Backend, oplusAvailable: 
         BackendChoice.AUTO -> autoBackend
         BackendChoice.AOSP -> Backend.AOSP
         BackendChoice.OPLUS -> if (oplusAvailable) Backend.OPLUS else Backend.AOSP
+        BackendChoice.OPLUS_MMV -> if (oplusAvailable) Backend.OPLUS_MMV else Backend.AOSP
     }
 
 /**
@@ -45,10 +46,16 @@ fun resolveBackend(choice: BackendChoice, autoBackend: Backend, oplusAvailable: 
  * reporting itself as a Galaxy while running OxygenOS would pick the wrong path every
  * time. The actuator's own answers cannot be spoofed by a build.prop edit.
  */
-enum class BackendChoice { AUTO, AOSP, OPLUS }
+enum class BackendChoice { AUTO, AOSP, OPLUS, OPLUS_MMV }
 
 /** A single tap: which band fired it, how hard, and how far in the future. */
-data class Tap(val band: Band, val strength: Float, val delayMs: Int = 0)
+data class Tap(
+    val band: Band,
+    val strength: Float,
+    val delayMs: Int = 0,
+    /** True when this tap came from the predicted beat grid rather than a detected onset. */
+    val accent: Boolean = false,
+)
 
 class HapticEngine(context: Context) {
 
@@ -96,12 +103,12 @@ class HapticEngine(context: Context) {
      * that never wired up the compose HAL, not an upgrade — it loses HAL-side timing.
      */
     val autoBackend: Backend =
-        if (!primitivesAvailable && OplusHaptics.available) Backend.OPLUS else Backend.AOSP
+        if (!primitivesAvailable && OplusHaptics.available) Backend.OPLUS_MMV else Backend.AOSP
 
     /** Why [autoBackend] came out the way it did, shown on the setup card. */
     val autoReason: String = when {
         primitivesAvailable -> "$primitiveCount AOSP primitives supported"
-        OplusHaptics.available -> "no AOSP primitives; vendor engine found"
+        OplusHaptics.available -> "no AOSP primitives; vendor engine found, using the full MMV voicing"
         else -> "no primitives and no vendor engine; short one-shots only"
     }
 
@@ -167,7 +174,7 @@ class HapticEngine(context: Context) {
     fun play(taps: List<Tap>) {
         if (taps.isEmpty()) return
         when (backend) {
-            Backend.OPLUS -> playOplus(taps)
+            Backend.OPLUS, Backend.OPLUS_MMV -> playOplus(taps)
             Backend.AOSP -> playAosp(taps)
         }
     }
@@ -187,6 +194,17 @@ class HapticEngine(context: Context) {
     fun previewOplus(effectId: Int, strength: Int) =
         OplusHaptics.vibrate(effectId, strength, bypassSystemScaling)
 
+    /** Demo for the MMV voicing: soft, hard, accent, so the three voices are audible. */
+    fun previewMmv() = play(
+        listOf(
+            Tap(Band.LOW, 1.0f, 0, accent = true),
+            Tap(Band.HIGH, 0.3f, 140),
+            Tap(Band.MID, 0.9f, 140),
+            Tap(Band.HIGH, 0.8f, 140),
+            Tap(Band.LOW, 0.5f, 140),
+        )
+    )
+
     fun preview() = play(
         listOf(
             Tap(Band.LOW, 1.0f, 0),
@@ -203,9 +221,14 @@ class HapticEngine(context: Context) {
     private val lastFireMs = longArrayOf(0, 0, 0)
 
     private fun playOplus(taps: List<Tap>) {
+        val mmv = backend == Backend.OPLUS_MMV
         val preset = MagicFeedback.byId(magicPresetId)
         val magicIds = preset?.let { MagicFeedback.resolve(it) }
-        val gaps = preset?.let { intArrayOf(it.gapLow, it.gapMid, it.gapHigh) }
+        val gaps = when {
+            preset != null -> intArrayOf(preset.gapLow, preset.gapMid, preset.gapHigh)
+            mmv -> MmvVoicing.gaps
+            else -> null
+        }
         val now = System.currentTimeMillis()
 
         var cumulative = 0
@@ -221,9 +244,22 @@ class HapticEngine(context: Context) {
                 lastFireMs[band] = at
             }
 
-            val table = magicIds ?: oplusEffects
-            val id = table.getOrElse(band) { table.firstOrNull() ?: 0 }
-            val strength = oplusStrength(t.band, t.strength)
+            val level = scaleFor(t.band, t.strength)
+            val id: Int
+            val strength: Int
+            val mmvVoice = if (mmv && magicIds == null) {
+                MmvVoicing.voice(t.band, level, t.accent)
+            } else {
+                null
+            }
+            if (mmvVoice != null) {
+                id = mmvVoice.first
+                strength = mmvVoice.second
+            } else {
+                val table = magicIds ?: oplusEffects
+                id = table.getOrElse(band) { table.firstOrNull() ?: 0 }
+                strength = quantise(level)
+            }
             if (cumulative <= 0) {
                 OplusHaptics.vibrate(id, strength, bypassSystemScaling)
             } else {
@@ -295,8 +331,7 @@ class HapticEngine(context: Context) {
      * before quantising — otherwise a hi-hat and a kick both round to STRONG and every tap
      * feels identical, which is the failure mode this whole app exists to avoid.
      */
-    private fun oplusStrength(band: Band, strength: Float): Int {
-        val s = scaleFor(band, strength)
+    private fun quantise(s: Float): Int {
         return when {
             s >= 0.66f -> OplusHaptics.strengthStrong
             s >= 0.36f -> OplusHaptics.strengthMedium

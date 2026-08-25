@@ -141,22 +141,15 @@ object OplusHaptics {
             setStrengthSettingEnabled = one(b, "setStrengthSettingEnabled")
             setUsageHint = one(b, "setUsageHint")
             build = b.methods.firstOrNull { it.name == "build" && it.parameterTypes.isEmpty() }
-            notes += "builder signatures:"
-            b.declaredMethods.sortedBy { it.name }.forEach { m ->
-                if (m.name.startsWith("set") || m.name == "build") {
-                    notes += "  ${m.name}(${m.parameterTypes.joinToString { it.simpleName }})"
-                }
-            }
+            // Signature dumps are built in describe(), not here. Enumerating and formatting
+            // every declared method of two vendor classes ran on the main thread at launch
+            // and was most of the visible startup delay.
         }
 
         for (name in serviceNames) {
             val svc = runCatching { context.getSystemService(name) }.getOrNull() ?: continue
             service = svc; serviceName = name
             notes += "service '$name' -> ${svc.javaClass.name}"
-            notes += "service signatures:"
-            svc.javaClass.declaredMethods.sortedBy { it.name }.forEach { m ->
-                notes += "  ${m.name}(${m.parameterTypes.joinToString { it.simpleName }}) : ${m.returnType.simpleName}"
-            }
             break
         }
         if (service == null) notes += "service: NOT FOUND"
@@ -199,6 +192,22 @@ object OplusHaptics {
     private val failed = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
 
     fun isKnownBad(effectId: Int): Boolean = failed.contains(effectId)
+
+    /**
+     * First constant name in [names] that this ROM exposes and has not already refused.
+     * Falls back to the first that merely exists, so callers always get something.
+     */
+    fun pick(names: List<String>): Int? {
+        val c = effectConstants
+        return names.firstNotNullOfOrNull { c[it]?.takeUnless { id -> isKnownBad(id) } }
+            ?: names.firstNotNullOfOrNull { c[it] }
+    }
+
+    fun strengthOf(tier: Int): Int = when (tier) {
+        0 -> strengthLight
+        1 -> strengthMedium
+        else -> strengthStrong
+    }
 
     fun forgetFailures() = failed.clear()
 
@@ -264,6 +273,20 @@ object OplusHaptics {
     fun describe(): String = buildString {
         appendLine("=== O-Haptics probe ===")
         notes.forEach { appendLine(it) }
+        builderClass?.let { b ->
+            appendLine("builder signatures:")
+            b.declaredMethods.sortedBy { it.name }.forEach { m ->
+                if (m.name.startsWith("set") || m.name == "build") {
+                    appendLine("  ${m.name}(${m.parameterTypes.joinToString { it.simpleName }})")
+                }
+            }
+        }
+        service?.let { svc ->
+            appendLine("service signatures:")
+            svc.javaClass.declaredMethods.sortedBy { it.name }.forEach { m ->
+                appendLine("  ${m.name}(${m.parameterTypes.joinToString { it.simpleName }}) : ${m.returnType.simpleName}")
+            }
+        }
         appendLine()
         appendLine("resolved:")
         appendLine("  service       ${service?.javaClass?.name ?: "-"} (as '${serviceName ?: "-"}')")

@@ -10,6 +10,9 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -26,7 +29,7 @@ import java.io.File
 class MainActivity : ComponentActivity() {
 
     private lateinit var engine: HapticEngine
-    private var report: String = ""
+    private var report by mutableStateOf("Collecting…")
 
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -107,11 +110,15 @@ class MainActivity : ComponentActivity() {
         // Built once at startup. Shown in-app and written to a file, because OxygenOS and
         // ColorOS suppress third-party logcat output unless full logging is enabled in the
         // engineering menu — so logcat is the one place this must not live.
-        report = HapticsReport.build(this)
-        Log.i("MagicMusicV", report)
-        runCatching {
-            File(getExternalFilesDir(null), "haptics-report.txt").writeText(report)
-        }
+        // Off the main thread: harvesting a few hundred constants, formatting every vendor
+        // method signature and writing the file was happening during onCreate, and it showed
+        // as a stall before the first frame.
+        Thread {
+            val text = HapticsReport.build(this)
+            Log.i("MagicMusicV", text)
+            runCatching { File(getExternalFilesDir(null), "haptics-report.txt").writeText(text) }
+            runOnUiThread { report = text }
+        }.start()
 
         val version = runCatching {
             @Suppress("DEPRECATION")

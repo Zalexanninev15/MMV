@@ -90,12 +90,6 @@ fun AboutDialog(version: String, onDismiss: () -> Unit) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Check for updates")
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("Repo", style = MaterialTheme.typography.labelSmall)
-                    Text("Mastodon", style = MaterialTheme.typography.labelSmall)
-                    Text(if (checking) "Checking" else "Updates", style = MaterialTheme.typography.labelSmall)
-                }
-
                 result?.let { r ->
                     val line = when {
                         r.error != null -> r.error

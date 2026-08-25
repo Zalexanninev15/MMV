@@ -140,8 +140,39 @@ class HapticService : Service() {
         )
     }
 
+    private var lastEffects = intArrayOf(-1, -1, -1)
+
+    /**
+     * Pulls the tunable settings across on every hop.
+     *
+     * These used to be copied once in onStartCommand, which froze intensity, sensitivity and
+     * the band switches for the whole session — moving a slider did nothing until you stopped
+     * and started again. Volatile writes at 188 Hz cost nothing; the two allocating fields are
+     * only rebuilt when they actually change.
+     */
+    private fun pullLiveSettings() {
+        engine.intensity = EngineState.intensity.value
+        detector.sensitivity = EngineState.sensitivity.value
+        engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
+        engine.magicPresetId = EngineState.magicPreset.value.takeIf { it.isNotEmpty() }
+
+        val be = detector.bandEnabled
+        be[0] = EngineState.bandLow.value
+        be[1] = EngineState.bandMid.value
+        be[2] = EngineState.bandHigh.value
+
+        val lo = EngineState.effectLow.value
+        val mi = EngineState.effectMid.value
+        val hi = EngineState.effectHigh.value
+        if (lo != lastEffects[0] || mi != lastEffects[1] || hi != lastEffects[2]) {
+            lastEffects = intArrayOf(lo, mi, hi)
+            engine.oplusEffects = lastEffects
+        }
+    }
+
     /** Runs on the audio thread. Keep it allocation-light and never block it. */
     private fun onHop(hop: FloatArray) {
+        pullLiveSettings()
         val onsets = detector.process(hop)
         tempo.push(detector.lastFluxSum)
 
@@ -161,7 +192,7 @@ class HapticService : Service() {
                 if (deltaMs >= 0f && deltaMs <= LOOKAHEAD_MS) {
                     lastScheduledBeat = next
                     lastBeatTapFrame = next
-                    engine.play(Tap(Band.LOW, beatStrength, deltaMs.roundToInt()))
+                    engine.play(Tap(Band.LOW, beatStrength, deltaMs.roundToInt(), accent = true))
                     EngineState.tapCount.value++
                 }
             }
