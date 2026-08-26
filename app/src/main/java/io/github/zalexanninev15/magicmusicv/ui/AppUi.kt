@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package io.github.zalexanninev15.magicmusicv.ui
 
 import androidx.compose.foundation.clickable
@@ -9,26 +11,45 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -43,7 +64,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.zalexanninev15.magicmusicv.AppTheme
 import io.github.zalexanninev15.magicmusicv.EngineState
@@ -51,19 +71,25 @@ import io.github.zalexanninev15.magicmusicv.Mode
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.haptics.Backend
 import io.github.zalexanninev15.magicmusicv.haptics.BackendChoice
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayArrow
 import io.github.zalexanninev15.magicmusicv.haptics.HapticTier
 import io.github.zalexanninev15.magicmusicv.haptics.MagicFeedback
 import io.github.zalexanninev15.magicmusicv.haptics.MmvVoicing
+import io.github.zalexanninev15.magicmusicv.haptics.OplusHaptics
 import io.github.zalexanninev15.magicmusicv.haptics.resolveBackend
 import io.github.zalexanninev15.magicmusicv.oem.OemSupport
 import io.github.zalexanninev15.magicmusicv.oem.Vendor
 import io.github.zalexanninev15.magicmusicv.settings.ProfileStore
 import kotlin.math.roundToInt
 
-private enum class Tab(val label: String) { PLAY("Play"), TUNE("Tune"), SETUP("Setup") }
+/**
+ * MD3 spacing. The spec works on a 4dp grid with an 8dp system for layout; naming the three
+ * values the app actually uses keeps them from drifting into arbitrary numbers.
+ */
+private val ScreenMargin = 16.dp
+private val SectionGap = 24.dp
+private val ItemGap = 8.dp
+
+private enum class Dest(val label: String) { PLAY("Play"), TUNE("Tune"), SETUP("Setup") }
 
 @Composable
 fun MagicMusicScreen(
@@ -85,85 +111,108 @@ fun MagicMusicScreen(
     onExportProfile: (String) -> Unit,
     onImport: () -> Unit,
 ) {
-    val context = LocalContext.current
-    var tab by remember { mutableStateOf(Tab.PLAY) }
+    var dest by remember { mutableStateOf(Dest.PLAY) }
     var showAbout by remember { mutableStateOf(false) }
 
     val running by EngineState.running.collectAsState()
     val error by EngineState.error.collectAsState()
     val notice by EngineState.notice.collectAsState()
 
+    // Transient messages belong in a snackbar, not in cards wedged into the layout where they
+    // shifted everything below them every time one appeared.
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(error) {
+        error?.let {
+            snackbar.showSnackbar(it)
+            EngineState.error.value = null
+        }
+    }
+    LaunchedEffect(notice) {
+        notice?.let {
+            snackbar.showSnackbar(it)
+            EngineState.notice.value = null
+        }
+    }
+
     if (showAbout) AboutDialog(version = version, onDismiss = { showAbout = false })
 
-    Scaffold { inner ->
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Magic Music V") },
+                actions = {
+                    IconButton(onClick = { showAbout = true }) {
+                        Icon(Icons.Filled.Info, contentDescription = "About")
+                    }
+                },
+            )
+        },
+        bottomBar = {
+            // Three destinations on a compact screen is the navigation bar case in MD3.
+            // Tabs were doing this job before, which is the two-destination pattern.
+            NavigationBar {
+                Dest.entries.forEach { d ->
+                    NavigationBarItem(
+                        selected = dest == d,
+                        onClick = { dest = d },
+                        icon = {
+                            Icon(
+                                when (d) {
+                                    Dest.PLAY -> Icons.Filled.PlayArrow
+                                    Dest.TUNE -> Icons.Filled.Build
+                                    Dest.SETUP -> Icons.Filled.Settings
+                                },
+                                contentDescription = null,
+                            )
+                        },
+                        label = { Text(d.label) },
+                    )
+                }
+            }
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { if (running) onStop() else onStart() },
+                icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                text = { Text(if (running) "Stop" else "Start") },
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbar) },
+    ) { inner ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(horizontal = 20.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = ScreenMargin),
+            verticalArrangement = Arrangement.spacedBy(SectionGap),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Magic Music V", style = MaterialTheme.typography.headlineSmall)
-                // Tonal fill rather than a bare TextButton: as plain text next to a
-                // headline it read as a label, not something you could press.
-                IconButton(onClick = { showAbout = true }) {
-                    Icon(
-                        Icons.Filled.Info,
-                        contentDescription = "About",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
+            Spacer(Modifier.height(ItemGap))
+
+            when (dest) {
+                Dest.PLAY -> PlayTab(onPreview)
+                Dest.TUNE -> TuneTab(
+                    oplusAvailable, autoBackend, tapCandidates,
+                    onPreviewEffect, onPreviewMagic, onPreviewMagicBand,
+                )
+
+                Dest.SETUP -> SetupTab(
+                    tier, report, oplusAvailable, primitiveCount, autoBackend, autoReason,
+                    running, onExport, onExportProfile, onImport,
+                )
             }
 
-            Row(
-                modifier = Modifier.padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Tab.entries.forEach { t ->
-                    Chip(t.label, tab == t, true) { tab = t }
-                }
-            }
-
-            error?.let { Warning(it) }
-            notice?.let { Notice(it) }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Spacer(Modifier.height(4.dp))
-                when (tab) {
-                    Tab.PLAY -> PlayTab(running, onStart, onStop, onPreview)
-                    Tab.TUNE -> TuneTab(
-                        oplusAvailable, autoBackend, tapCandidates,
-                        onPreviewEffect, onPreviewMagic, onPreviewMagicBand,
-                    )
-                    Tab.SETUP -> SetupTab(
-                        tier, report, oplusAvailable, primitiveCount,
-                        autoBackend, autoReason, running, onExport, onExportProfile, onImport,
-                    )
-                }
-                Spacer(Modifier.height(32.dp))
-            }
+            // Clears the FAB and the navigation bar.
+            Spacer(Modifier.height(88.dp))
         }
     }
 }
 
+// ---------------------------------------------------------------- Play
+
 @Composable
-private fun PlayTab(
-    running: Boolean,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onPreview: () -> Unit,
-) {
+private fun PlayTab(onPreview: () -> Unit) {
+    val running by EngineState.running.collectAsState()
     val bpm by EngineState.bpm.collectAsState()
     val confidence by EngineState.confidence.collectAsState()
     val level by EngineState.level.collectAsState()
@@ -171,108 +220,74 @@ private fun PlayTab(
     val mode by EngineState.mode.collectAsState()
     val source by EngineState.source.collectAsState()
 
-    Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // Outlined rather than filled: this is a readout, not a surface you act on, and an
+    // outline keeps it from competing with the tonal cards below.
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(ScreenMargin),
+            verticalArrangement = Arrangement.spacedBy(ItemGap),
+        ) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Bottom,
             ) {
                 Text(
-                    if (bpm > 0f) "${bpm.roundToInt()} BPM" else "-- BPM",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
+                    if (bpm > 0f) "${bpm.roundToInt()}" else "--",
+                    style = MaterialTheme.typography.displaySmall,
                 )
-                Text("$taps taps", style = MaterialTheme.typography.bodyMedium)
+                Text("BPM", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "$taps taps",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             LinearProgressIndicator(
                 progress = { level },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp),
+                modifier = Modifier.fillMaxWidth(),
             )
-            Text("lock ${"%.1f".format(confidence)}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "beat lock ${"%.1f".format(confidence)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Button(
-            onClick = { if (running) onStop() else onStart() },
-            modifier = Modifier.weight(1f),
-        ) { Text(if (running) "Stop" else "Start") }
-        OutlinedButton(onClick = onPreview, enabled = !running) { Text("Feel it") }
-    }
-
-    Section("Source") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("System audio", source == SourceKind.PLAYBACK_CAPTURE, !running) {
-                EngineState.source.value = SourceKind.PLAYBACK_CAPTURE
-            }
-            Chip("Microphone", source == SourceKind.MICROPHONE, !running) {
-                EngineState.source.value = SourceKind.MICROPHONE
-            }
+    Section("Source", "Where the audio comes from") {
+        Choice(
+            options = listOf("System audio", "Microphone"),
+            selectedIndex = if (source == SourceKind.PLAYBACK_CAPTURE) 0 else 1,
+            enabled = !running,
+        ) {
+            EngineState.source.value =
+                if (it == 0) SourceKind.PLAYBACK_CAPTURE else SourceKind.MICROPHONE
         }
-        Text(
+        Supporting(
             if (source == SourceKind.PLAYBACK_CAPTURE)
-                "Needs the screen-capture prompt. Pick the playing app rather than the whole screen. Apps that block capture (Spotify, YouTube Music) stay silent."
+                "Needs the screen-capture prompt. Apps that block audio capture, such as " +
+                    "Spotify and YouTube Music, stay silent here."
             else
-                "Works with anything audible on speakers. Useless on headphones.",
-            style = MaterialTheme.typography.bodySmall,
+                "Works with anything audible on speakers. Useless on headphones."
         )
     }
 
-    Section("Mode") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("Onsets", mode == Mode.ONSET, true) { EngineState.mode.value = Mode.ONSET }
-            Chip("Beat", mode == Mode.BEAT, true) { EngineState.mode.value = Mode.BEAT }
-            Chip("Hybrid", mode == Mode.HYBRID, true) { EngineState.mode.value = Mode.HYBRID }
-        }
-        Text(
+    Section("Mode", "How taps are placed against the music") {
+        Choice(
+            options = listOf("Onsets", "Beat", "Hybrid"),
+            selectedIndex = Mode.entries.indexOf(mode),
+        ) { EngineState.mode.value = Mode.entries[it] }
+        Supporting(
             when (mode) {
                 Mode.ONSET -> "Every transient taps. Most detail, always a few ms behind."
-                Mode.BEAT -> "Only the predicted beat grid. Can be scheduled ahead of the audio."
-                Mode.HYBRID -> "Beat grid for the pulse plus lighter taps for snare and hats."
-            },
-            style = MaterialTheme.typography.bodySmall,
+                Mode.BEAT -> "Only the predicted grid. Can be scheduled ahead of the audio."
+                Mode.HYBRID -> "Grid for the pulse, lighter taps for snare and hats."
+            }
         )
     }
 
-    if (OemSupport.isOplus) OplusBackgroundCard()
-}
-
-@Composable
-private fun OplusBackgroundCard() {
-    val context = LocalContext.current
-    var batteryOk by remember { mutableStateOf(OemSupport.isBatteryUnrestricted(context)) }
-    if (batteryOk) return
-
-    Card {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                when (OemSupport.vendor) {
-                    Vendor.ONEPLUS -> "OxygenOS will freeze this app"
-                    Vendor.REALME -> "realme UI will freeze this app"
-                    else -> "ColorOS will freeze this app"
-                },
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                "Taps stop a few minutes after the screen goes off unless the app is " +
-                    "unrestricted and allowed to auto-start. Both switches are needed.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = {
-                    OemSupport.requestBatteryUnrestricted(context)
-                    batteryOk = OemSupport.isBatteryUnrestricted(context)
-                }) { Text("Unrestrict battery") }
-                FilledTonalButton(onClick = { OemSupport.openAutoStartSettings(context) }) {
-                    Text("Auto-start")
-                }
-            }
-        }
-    }
+    OutlinedButton(onClick = onPreview, enabled = !running) { Text("Feel a test pattern") }
 }
 
 // ---------------------------------------------------------------- Tune
@@ -289,60 +304,51 @@ private fun TuneTab(
     val intensity by EngineState.intensity.collectAsState()
     val sensitivity by EngineState.sensitivity.collectAsState()
     val offsetMs by EngineState.offsetMs.collectAsState()
-    val magicPreset by EngineState.magicPreset.collectAsState()
     val bandLow by EngineState.bandLow.collectAsState()
     val bandMid by EngineState.bandMid.collectAsState()
     val bandHigh by EngineState.bandHigh.collectAsState()
+    val magicPreset by EngineState.magicPreset.collectAsState()
     val backendChoice by EngineState.backendChoice.collectAsState()
     val resolved = resolveBackend(backendChoice, autoBackend, oplusAvailable)
 
-    Section("Bands") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("Low", bandLow, true) { EngineState.bandLow.value = !bandLow }
-            Chip("Mid", bandMid, true) { EngineState.bandMid.value = !bandMid }
-            Chip("High", bandHigh, true) { EngineState.bandHigh.value = !bandHigh }
+    Section("Bands", "Which parts of the spectrum tap") {
+        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
+            Toggle("Low", bandLow) { EngineState.bandLow.value = it }
+            Toggle("Mid", bandMid) { EngineState.bandMid.value = it }
+            Toggle("High", bandHigh) { EngineState.bandHigh.value = it }
         }
     }
 
-    Section("Intensity  ${(intensity * 100).roundToInt()}%") {
+    Section("Intensity", "${(intensity * 100).roundToInt()}%") {
         Slider(
             value = intensity,
             onValueChange = { EngineState.intensity.value = it },
             valueRange = 0.2f..1f,
         )
-        if (OemSupport.isOplus) {
-            Text(
-                "Settings - Sounds & vibration - Vibration intensity scales this on top.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
     }
 
-    Section("Sensitivity  ${"%.2f".format(sensitivity)}") {
+    Section("Sensitivity", "%.2f".format(sensitivity)) {
         Slider(
             value = sensitivity,
             onValueChange = { EngineState.sensitivity.value = it },
             valueRange = 1.05f..3f,
         )
-        Text(
-            "Lower catches more; too low and the taps run together.",
-            style = MaterialTheme.typography.bodySmall,
-        )
+        Supporting("Lower catches more; too low and the taps run together.")
     }
 
-    Section("Timing offset  $offsetMs ms") {
+    Section("Timing offset", "$offsetMs ms") {
         Slider(
             value = offsetMs.toFloat(),
             onValueChange = { EngineState.offsetMs.value = it.roundToInt() },
             valueRange = -60f..60f,
         )
-        Text(
-            "Negative values only bite in Beat and Hybrid, where the beat is predicted.",
-            style = MaterialTheme.typography.bodySmall,
-        )
+        Supporting("Negative values only bite in Beat and Hybrid, where the beat is predicted.")
     }
 
-    if (resolved == Backend.OPLUS) {
+    if (resolved == Backend.OPLUS || resolved == Backend.OPLUS_MMV) {
+        HorizontalDivider()
+        EffectLab(tapCandidates, onPreviewEffect)
+
         if (MagicFeedback.available) {
             var showMagic by remember { mutableStateOf(magicPreset.isNotEmpty()) }
             OutlinedButton(onClick = { showMagic = !showMagic }) {
@@ -350,81 +356,6 @@ private fun TuneTab(
             }
             if (showMagic) MagicSection(magicPreset, onPreviewMagic, onPreviewMagicBand)
         }
-        EffectLab(tapCandidates, onPreviewEffect)
-    }
-}
-
-/**
- * The textured presets.
- *
- * Kept out of the effect lab because it answers a different question: the lab is "which
- * single effect fires per band", this is "what should the phone pretend to be".
- */
-@Composable
-private fun MagicSection(
-    magicPreset: String,
-    onPreviewMagic: (String) -> Unit,
-    onPreviewMagicBand: (String, Int) -> Unit,
-) {
-    Section("Magical tactile feedback") {
-        Text(
-            "Experimental, and off by default. These override the backend's own voicing with " +
-                "a single textured effect per band. Several are rejected by the ROM or too " +
-                "long to follow a beat — O-Haptics by MMV is the better starting point.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Chip("Off", magicPreset.isEmpty(), true) { EngineState.magicPreset.value = "" }
-        MagicFeedback.presets.forEach { preset ->
-            val selected = preset.id == magicPreset
-            Card {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { EngineState.magicPreset.value = preset.id }
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            preset.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
-                        IconButton(onClick = { onPreviewMagic(preset.id) }) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "Try ${preset.title}")
-                        }
-                    }
-                    Text(preset.blurb, style = MaterialTheme.typography.bodySmall)
-                    MagicFeedback.explain(preset).forEachIndexed { band, label ->
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "${listOf("low ", "mid ", "high")[band]}  $label",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                            OutlinedButton(onClick = { onPreviewMagicBand(preset.id, band) }) {
-                                Text("Test")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Text(
-            "These run several times longer than a tap, so each preset carries its own rate " +
-                "limit and drops onsets that would overlap. Beat or Hybrid suits them better " +
-                "than Onsets.",
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 }
 
@@ -435,15 +366,15 @@ private fun EffectLab(
 ) {
     var filter by remember { mutableStateOf("") }
     var selected by remember { mutableIntStateOf(2) }
-    val effectLowId by EngineState.effectLow.collectAsState()
-    val effectMidId by EngineState.effectMid.collectAsState()
-    val effectHighId by EngineState.effectHigh.collectAsState()
+    val effectLow by EngineState.effectLow.collectAsState()
+    val effectMid by EngineState.effectMid.collectAsState()
+    val effectHigh by EngineState.effectHigh.collectAsState()
 
-    Section("Effect lab") {
+    Section("Effect lab", "Audition vendor effects and assign them to bands") {
         OutlinedTextField(
             value = filter,
             onValueChange = { filter = it },
-            label = { Text("Filter ${tapCandidates.size} tap effects") },
+            label = { Text("Filter ${tapCandidates.size} effects") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -451,29 +382,29 @@ private fun EffectLab(
             if (filter.isBlank()) tapCandidates
             else tapCandidates.filter { it.first.contains(filter, true) }
         }
-        Card {
-            LazyColumn(modifier = Modifier.height(220.dp)) {
+        OutlinedCard(Modifier.fillMaxWidth()) {
+            LazyColumn(Modifier.heightIn(max = 260.dp)) {
                 items(shown.size) { i ->
                     val (name, id) = shown[i]
-                    val isSel = id == selected
-                    Text(
-                        "${if (isSel) "> " else "  "}$id  ${name.removePrefix("EFFECT_")}",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                selected = id
-                                onPreviewEffect(id, 1)
-                            }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (isSel) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface,
+                    ListItem(
+                        headlineContent = { Text(name.removePrefix("EFFECT_")) },
+                        supportingContent = { Text("id $id") },
+                        colors = ListItemDefaults.colors(
+                            containerColor = if (id == selected) {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                        ),
+                        modifier = Modifier.clickable {
+                            selected = id
+                            onPreviewEffect(id, 1)
+                        },
                     )
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
             FilledTonalButton(
                 modifier = Modifier.weight(1f),
                 onClick = { onPreviewEffect(selected, 0) },
@@ -487,11 +418,81 @@ private fun EffectLab(
                 onClick = { onPreviewEffect(selected, 2) },
             ) { Text("Strong") }
         }
-        Text("Assign $selected to:", style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("Low $effectLowId", false, true) { EngineState.effectLow.value = selected }
-            Chip("Mid $effectMidId", false, true) { EngineState.effectMid.value = selected }
-            Chip("High $effectHighId", false, true) { EngineState.effectHigh.value = selected }
+        Supporting("Assign effect $selected to a band:")
+        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = { EngineState.effectLow.value = selected },
+            ) { Text("Low $effectLow") }
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = { EngineState.effectMid.value = selected },
+            ) { Text("Mid $effectMid") }
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = { EngineState.effectHigh.value = selected },
+            ) { Text("High $effectHigh") }
+        }
+    }
+}
+
+@Composable
+private fun MagicSection(
+    magicPreset: String,
+    onPreviewMagic: (String) -> Unit,
+    onPreviewMagicBand: (String, Int) -> Unit,
+) {
+    Section("Advanced textures", "Experimental, off by default") {
+        Supporting(
+            "These replace the backend's own voicing with a single textured effect per band. " +
+                "Several are rejected by the ROM or too long to follow a beat."
+        )
+        OutlinedButton(onClick = { EngineState.magicPreset.value = "" }) { Text("Off") }
+        MagicFeedback.presets.forEach { preset ->
+            val selected = preset.id == magicPreset
+            Card(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { EngineState.magicPreset.value = preset.id }
+            ) {
+                Column(
+                    Modifier.padding(ScreenMargin),
+                    verticalArrangement = Arrangement.spacedBy(ItemGap),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            preset.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                        IconButton(onClick = { onPreviewMagic(preset.id) }) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = "Try ${preset.title}")
+                        }
+                    }
+                    Supporting(preset.blurb)
+                    MagicFeedback.explain(preset).forEachIndexed { band, label ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "${listOf("low", "mid", "high")[band]}  $label",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            OutlinedButton(onClick = { onPreviewMagicBand(preset.id, band) }) {
+                                Text("Test")
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -512,26 +513,28 @@ private fun SetupTab(
     onImport: () -> Unit,
 ) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
     val backendChoice by EngineState.backendChoice.collectAsState()
     val bypassScaling by EngineState.bypassSystemScaling.collectAsState()
     val theme by EngineState.theme.collectAsState()
     val dynamicColor by EngineState.dynamicColor.collectAsState()
     val resolved = resolveBackend(backendChoice, autoBackend, oplusAvailable)
 
-    Section("Haptic engine") {
-        Card {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Section("Haptic engine", OemSupport.deviceLabel) {
+        OutlinedCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.padding(ScreenMargin),
+                verticalArrangement = Arrangement.spacedBy(ItemGap),
+            ) {
                 Text(
-                    "Detected: " + when (resolved) {
+                    when (resolved) {
                         Backend.OPLUS_MMV -> "O-Haptics by MMV (experimental)"
-                        Backend.OPLUS -> "O-Haptics (vendor)"
+                        Backend.OPLUS -> "O-Haptics"
                         Backend.AOSP ->
                             if (primitiveCount > 0) "AOSP primitives" else "AOSP one-shots"
                     },
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                 )
-                Text(autoReason, style = MaterialTheme.typography.bodySmall)
+                Supporting(autoReason)
                 if (resolved == Backend.OPLUS_MMV) {
                     MmvVoicing.describe().forEach {
                         Text(
@@ -541,83 +544,133 @@ private fun SetupTab(
                         )
                     }
                 }
-                Text(OemSupport.deviceLabel, style = MaterialTheme.typography.bodySmall)
             }
         }
-        if (oplusAvailable) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Auto", backendChoice == BackendChoice.AUTO, !running) {
-                    EngineState.backendChoice.value = BackendChoice.AUTO
-                }
-                Chip("AOSP", backendChoice == BackendChoice.AOSP, !running) {
-                    EngineState.backendChoice.value = BackendChoice.AOSP
-                }
-                Chip("O-Haptics", backendChoice == BackendChoice.OPLUS, !running) {
-                    EngineState.backendChoice.value = BackendChoice.OPLUS
-                }
-                Chip("O-Haptics by MMV *", backendChoice == BackendChoice.OPLUS_MMV, !running) {
-                    EngineState.backendChoice.value = BackendChoice.OPLUS_MMV
-                }
-            }
-            Text(
-                "Auto is detection-driven and right on every device. The overrides exist " +
-                    "only to A/B the two paths where both work.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        if (resolved == Backend.OPLUS) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Switch(
-                    checked = bypassScaling,
-                    onCheckedChange = { EngineState.bypassSystemScaling.value = it },
-                )
-                Text("Ignore system vibration intensity", style = MaterialTheme.typography.bodySmall)
-            }
-        }
+
         when (tier) {
-            HapticTier.NONE -> Warning(
-                "No AOSP primitives and no vendor haptic service. Taps fall back to short " +
-                    "one-shots, which on a rotary ERM motor read as a buzz."
+            HapticTier.NONE -> Supporting(
+                "No AOSP primitives and no vendor engine. Taps fall back to short one-shots, " +
+                    "which on a rotary motor read as a buzz."
             )
 
-            HapticTier.PARTIAL -> Warning(
-                "Partial AOSP primitive set: no THUD, so kicks fall back to CLICK."
-            )
+            HapticTier.PARTIAL -> Supporting("No THUD primitive, so kicks fall back to CLICK.")
+            else -> Unit
+        }
 
-            HapticTier.VENDOR_ONLY, HapticTier.FULL -> Unit
+        if (oplusAvailable) {
+            Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
+                listOf(
+                    "Auto" to BackendChoice.AUTO,
+                    "AOSP" to BackendChoice.AOSP,
+                    "O-Haptics" to BackendChoice.OPLUS,
+                    "MMV *" to BackendChoice.OPLUS_MMV,
+                ).forEach { (label, choice) ->
+                    FilterChip(
+                        selected = backendChoice == choice,
+                        onClick = { EngineState.backendChoice.value = choice },
+                        enabled = !running,
+                        label = { Text(label) },
+                    )
+                }
+            }
+            Supporting(
+                "* MMV is experimental. It keeps the O-Haptics taps exactly as they are and " +
+                    "layers a second effect behind hard hits and beats. Auto never selects it."
+            )
+            SwitchRow(
+                "Ignore system vibration intensity",
+                "Detaches effects from the slider in system settings",
+                bypassScaling,
+            ) { EngineState.bypassSystemScaling.value = it }
         }
     }
 
-    Section("Theme") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("System", theme == AppTheme.SYSTEM, true) { EngineState.theme.value = AppTheme.SYSTEM }
-            Chip("Dark", theme == AppTheme.DARK, true) { EngineState.theme.value = AppTheme.DARK }
-            Chip("Light", theme == AppTheme.LIGHT, true) { EngineState.theme.value = AppTheme.LIGHT }
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+    if (OemSupport.isOplus && !OemSupport.isBatteryUnrestricted(context)) {
+        Section(
+            when (OemSupport.vendor) {
+                Vendor.ONEPLUS -> "OxygenOS will freeze this app"
+                Vendor.REALME -> "realme UI will freeze this app"
+                else -> "ColorOS will freeze this app"
+            },
+            "Both switches are needed",
         ) {
-            Switch(
-                checked = dynamicColor,
-                onCheckedChange = { EngineState.dynamicColor.value = it },
+            Supporting(
+                "Taps stop a few minutes after the screen goes off unless the app is " +
+                    "unrestricted and allowed to auto-start."
             )
-            Text("Material You colours", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
+                FilledTonalButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { OemSupport.requestBatteryUnrestricted(context) },
+                ) { Text("Battery") }
+                FilledTonalButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { OemSupport.openAutoStartSettings(context) },
+                ) { Text("Auto-start") }
+            }
         }
-        Text(
-            if (dynamicColor) "Palette comes from your wallpaper."
-            else "Using the app's own palette.",
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 
-    Section("Profiles") {
-        var name by remember { mutableStateOf("") }
-        var profiles by remember { mutableStateOf(ProfileStore.list(context)) }
+    Section("Appearance") {
+        Choice(
+            options = listOf("System", "Dark", "Light"),
+            selectedIndex = AppTheme.entries.indexOf(theme),
+        ) { EngineState.theme.value = AppTheme.entries[it] }
+        SwitchRow(
+            "Material You colours",
+            if (dynamicColor) "Palette from your wallpaper" else "The app's own palette",
+            dynamicColor,
+        ) { EngineState.dynamicColor.value = it }
+    }
 
+    ProfilesSection(onExport, onExportProfile, onImport)
+
+    Section("Diagnostics") {
+        var show by remember { mutableStateOf(false) }
+        val clipboard = LocalClipboardManager.current
+        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = { show = !show },
+            ) { Text(if (show) "Hide report" else "Haptics report") }
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = { clipboard.setText(AnnotatedString(report)) },
+            ) { Text("Copy") }
+        }
+        if (show) {
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                SelectionContainer {
+                    Text(
+                        report,
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .padding(ScreenMargin),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            }
+        }
+        if (OplusHaptics.available) {
+            OutlinedButton(onClick = { OplusHaptics.forgetFailures() }) {
+                Text("Retry refused effects")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfilesSection(
+    onExport: () -> Unit,
+    onExportProfile: (String) -> Unit,
+    onImport: () -> Unit,
+) {
+    val context = LocalContext.current
+    var name by remember { mutableStateOf("") }
+    var profiles by remember { mutableStateOf(ProfileStore.list(context)) }
+
+    Section("Profiles", "Saved separately from the live settings") {
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
@@ -625,31 +678,30 @@ private fun SetupTab(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
                 if (ProfileStore.save(context, name, EngineState.snapshot())) {
                     profiles = ProfileStore.list(context)
-                    EngineState.notice.value = "Saved profile \"${name.trim()}\""
+                    EngineState.notice.value = "Saved \"${name.trim()}\""
                     name = ""
                 } else {
                     EngineState.error.value = "Give the profile a name first"
                 }
-            }) { Text("Save profile") }
-        }
+            },
+        ) { Text("Save current settings") }
 
         if (profiles.isEmpty()) {
-            Text("No saved profiles yet.", style = MaterialTheme.typography.bodySmall)
+            Supporting("No saved profiles yet.")
         } else {
             profiles.forEach { p ->
-                Card {
+                Card(Modifier.fillMaxWidth()) {
                     Column(
-                        Modifier.fillMaxWidth().padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        Modifier.padding(ScreenMargin),
+                        verticalArrangement = Arrangement.spacedBy(ItemGap),
                     ) {
-                        Text(p, style = MaterialTheme.typography.titleSmall)
-                        // Name above, actions below: three buttons plus a name on one row
-                        // squeezed the labels until they wrapped on a phone.
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(p, style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
                             FilledTonalButton(
                                 modifier = Modifier.weight(1f),
                                 onClick = {
@@ -659,7 +711,7 @@ private fun SetupTab(
                                         EngineState.save(context)
                                         EngineState.notice.value = "Loaded \"$p\""
                                     } else {
-                                        EngineState.error.value = "Profile \"$p\" is unreadable"
+                                        EngineState.error.value = "\"$p\" is unreadable"
                                     }
                                 },
                             ) { Text("Load") }
@@ -681,94 +733,91 @@ private fun SetupTab(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(
-                modifier = Modifier.weight(1f),
-                onClick = onExport,
-            ) { Text("Export all") }
-            FilledTonalButton(
-                modifier = Modifier.weight(1f),
-                onClick = onImport,
-            ) { Text("Import") }
+        HorizontalDivider()
+        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
+            FilledTonalButton(modifier = Modifier.weight(1f), onClick = onExport) { Text("Export all") }
+            FilledTonalButton(modifier = Modifier.weight(1f), onClick = onImport) { Text("Import") }
         }
-        OutlinedButton(onClick = {
-            EngineState.resetToDefaults()
-            EngineState.save(context)
-            EngineState.notice.value = "Settings reset to defaults"
-        }) { Text("Reset to defaults") }
-        Text(
-            "Reset touches settings only — saved profiles are kept.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-
-    Section("Diagnostics") {
-        var show by remember { mutableStateOf(false) }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(onClick = { show = !show }) {
-                Text(if (show) "Hide report" else "Haptics report")
-            }
-            FilledTonalButton(
-                onClick = { clipboard.setText(AnnotatedString(report)) },
-            ) { Text("Copy") }
-        }
-        if (show) {
-            Card {
-                SelectionContainer {
-                    Text(
-                        report,
-                        modifier = Modifier
-                            .horizontalScroll(rememberScrollState())
-                            .padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-            }
-        }
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                EngineState.resetToDefaults()
+                EngineState.save(context)
+                EngineState.notice.value = "Settings reset to defaults"
+            },
+        ) { Text("Reset to defaults") }
     }
 }
 
-// ---------------------------------------------------------------- shared
+// ---------------------------------------------------------------- building blocks
 
+/** Section header plus its content, on the MD3 title/body pairing. */
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
+private fun Section(
+    title: String,
+    supporting: String? = null,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(ItemGap)) {
+        Text(title, style = MaterialTheme.typography.titleLarge)
+        if (supporting != null) Supporting(supporting)
         content()
     }
 }
 
 @Composable
-private fun Chip(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, enabled = enabled, label = { Text(label) })
+private fun Supporting(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * Mutually exclusive options as a segmented button — the MD3 control for this, where the app
+ * previously used filter chips, which are for non-exclusive filtering.
+ */
+@Composable
+private fun Choice(
+    options: List<String>,
+    selectedIndex: Int,
+    enabled: Boolean = true,
+    onSelect: (Int) -> Unit,
+) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        options.forEachIndexed { i, label ->
+            SegmentedButton(
+                selected = i == selectedIndex,
+                onClick = { onSelect(i) },
+                enabled = enabled,
+                shape = SegmentedButtonDefaults.itemShape(i, options.size),
+            ) { Text(label) }
+        }
+    }
 }
 
 @Composable
-private fun Warning(text: String) {
-    Card {
-        Text(
-            text,
-            modifier = Modifier.padding(14.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-        )
-    }
+private fun Toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    FilterChip(
+        selected = checked,
+        onClick = { onChange(!checked) },
+        label = { Text(label) },
+    )
 }
 
-/** Transient success message. Clears itself so it cannot pile up behind the tabs. */
 @Composable
-private fun Notice(text: String) {
-    LaunchedEffect(text) {
-        kotlinx.coroutines.delay(3000)
-        EngineState.notice.value = null
-    }
-    Card {
-        Text(
-            text,
-            modifier = Modifier.padding(14.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
-    }
+private fun SwitchRow(
+    title: String,
+    supporting: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(supporting) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.clickable { onChange(!checked) },
+    )
 }
