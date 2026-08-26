@@ -19,9 +19,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -669,6 +671,7 @@ private fun ProfilesSection(
     val context = LocalContext.current
     var name by remember { mutableStateOf("") }
     var profiles by remember { mutableStateOf(ProfileStore.list(context)) }
+    var activeProfile by remember { mutableStateOf<String?>(null) }
 
     Section("Profiles", "Saved separately from the live settings") {
         OutlinedTextField(
@@ -683,6 +686,7 @@ private fun ProfilesSection(
             onClick = {
                 if (ProfileStore.save(context, name, EngineState.snapshot())) {
                     profiles = ProfileStore.list(context)
+                    activeProfile = name.trim()
                     EngineState.notice.value = "Saved \"${name.trim()}\""
                     name = ""
                 } else {
@@ -694,40 +698,63 @@ private fun ProfilesSection(
         if (profiles.isEmpty()) {
             Supporting("No saved profiles yet.")
         } else {
-            profiles.forEach { p ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier.padding(ScreenMargin),
-                        verticalArrangement = Arrangement.spacedBy(ItemGap),
-                    ) {
-                        Text(p, style = MaterialTheme.typography.titleMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
-                            FilledTonalButton(
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    val s = ProfileStore.load(context, p, EngineState.DEFAULTS)
-                                    if (s != null) {
-                                        EngineState.applySnapshot(s)
-                                        EngineState.save(context)
-                                        EngineState.notice.value = "Loaded \"$p\""
-                                    } else {
-                                        EngineState.error.value = "\"$p\" is unreadable"
+            // Same shape as the effect lab: an outlined container holding a scrollable list.
+            // A filled card with tonal buttons inside put surfaceContainerHighest next to
+            // secondaryContainer, one tonal step apart, and the buttons disappeared into it.
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                LazyColumn(Modifier.heightIn(max = 240.dp)) {
+                    items(profiles.size) { i ->
+                        val p = profiles[i]
+                        val active = p == activeProfile
+                        // Typed explicitly: a bare if/else returning a composable lambda or
+                        // null leaves the slot's type to inference, which is fragile here.
+                        val supporting: (@Composable () -> Unit)? =
+                            if (active) ({ Text("Active") }) else null
+                        ListItem(
+                            headlineContent = { Text(p) },
+                            supportingContent = supporting,
+                            trailingContent = {
+                                Row {
+                                    IconButton(onClick = { onExportProfile(p) }) {
+                                        Icon(
+                                            Icons.Filled.Share,
+                                            contentDescription = "Export $p",
+                                        )
                                     }
+                                    IconButton(onClick = {
+                                        ProfileStore.delete(context, p)
+                                        profiles = ProfileStore.list(context)
+                                        if (activeProfile == p) activeProfile = null
+                                        EngineState.notice.value = "Deleted \"$p\""
+                                    }) {
+                                        Icon(
+                                            Icons.Filled.Delete,
+                                            contentDescription = "Delete $p",
+                                        )
+                                    }
+                                }
+                            },
+                            colors = ListItemDefaults.colors(
+                                containerColor = if (active) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surface
                                 },
-                            ) { Text("Load") }
-                            FilledTonalButton(
-                                modifier = Modifier.weight(1f),
-                                onClick = { onExportProfile(p) },
-                            ) { Text("Export") }
-                            OutlinedButton(
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    ProfileStore.delete(context, p)
-                                    profiles = ProfileStore.list(context)
-                                    EngineState.notice.value = "Deleted \"$p\""
-                                },
-                            ) { Text("Delete") }
-                        }
+                            ),
+                            // Tapping the row applies the profile straight away — no Load
+                            // button to hunt for.
+                            modifier = Modifier.clickable {
+                                val snap = ProfileStore.load(context, p, EngineState.DEFAULTS)
+                                if (snap != null) {
+                                    EngineState.applySnapshot(snap)
+                                    EngineState.save(context)
+                                    activeProfile = p
+                                    EngineState.notice.value = "Loaded \"$p\""
+                                } else {
+                                    EngineState.error.value = "\"$p\" is unreadable"
+                                }
+                            },
+                        )
                     }
                 }
             }
