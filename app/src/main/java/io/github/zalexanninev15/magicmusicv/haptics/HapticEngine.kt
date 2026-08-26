@@ -103,12 +103,12 @@ class HapticEngine(context: Context) {
      * that never wired up the compose HAL, not an upgrade — it loses HAL-side timing.
      */
     val autoBackend: Backend =
-        if (!primitivesAvailable && OplusHaptics.available) Backend.OPLUS_MMV else Backend.AOSP
+        if (!primitivesAvailable && OplusHaptics.available) Backend.OPLUS else Backend.AOSP
 
     /** Why [autoBackend] came out the way it did, shown on the setup card. */
     val autoReason: String = when {
         primitivesAvailable -> "$primitiveCount AOSP primitives supported"
-        OplusHaptics.available -> "no AOSP primitives; vendor engine found, using the full MMV voicing"
+        OplusHaptics.available -> "no AOSP primitives; vendor engine found"
         else -> "no primitives and no vendor engine; short one-shots only"
     }
 
@@ -194,17 +194,6 @@ class HapticEngine(context: Context) {
     fun previewOplus(effectId: Int, strength: Int) =
         OplusHaptics.vibrate(effectId, strength, bypassSystemScaling)
 
-    /** Demo for the MMV voicing: soft, hard, accent, so the three voices are audible. */
-    fun previewMmv() = play(
-        listOf(
-            Tap(Band.LOW, 1.0f, 0, accent = true),
-            Tap(Band.HIGH, 0.3f, 140),
-            Tap(Band.MID, 0.9f, 140),
-            Tap(Band.HIGH, 0.8f, 140),
-            Tap(Band.LOW, 0.5f, 140),
-        )
-    )
-
     fun preview() = play(
         listOf(
             Tap(Band.LOW, 1.0f, 0),
@@ -226,7 +215,6 @@ class HapticEngine(context: Context) {
         val magicIds = preset?.let { MagicFeedback.resolve(it) }
         val gaps = when {
             preset != null -> intArrayOf(preset.gapLow, preset.gapMid, preset.gapHigh)
-            mmv -> MmvVoicing.gaps
             else -> null
         }
         val now = System.currentTimeMillis()
@@ -245,20 +233,20 @@ class HapticEngine(context: Context) {
             }
 
             val level = scaleFor(t.band, t.strength)
-            val id: Int
-            val strength: Int
-            val mmvVoice = if (mmv && magicIds == null) {
-                MmvVoicing.voice(t.band, level, t.accent)
-            } else {
-                null
-            }
-            if (mmvVoice != null) {
-                id = mmvVoice.first
-                strength = mmvVoice.second
-            } else {
-                val table = magicIds ?: oplusEffects
-                id = table.getOrElse(band) { table.firstOrNull() ?: 0 }
-                strength = quantise(level)
+            val table = magicIds ?: oplusEffects
+            val id = table.getOrElse(band) { table.firstOrNull() ?: 0 }
+            val strength = quantise(level)
+
+            // MMV is purely additive: the base tap above is untouched, and this schedules a
+            // second impulse behind it. Anything that substituted the base would risk being
+            // quieter than the backend it is layered on.
+            if (mmv && magicIds == null) {
+                MmvVoicing.garnish(t.band, level, t.accent)?.let { (gid, gstrength) ->
+                    scheduler.schedule(
+                        { OplusHaptics.vibrate(gid, gstrength, bypassSystemScaling) },
+                        (cumulative + MmvVoicing.LAYER_DELAY_MS).toLong(), TimeUnit.MILLISECONDS,
+                    )
+                }
             }
             if (cumulative <= 0) {
                 OplusHaptics.vibrate(id, strength, bypassSystemScaling)

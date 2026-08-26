@@ -55,6 +55,7 @@ object EngineState {
         bypassSystemScaling = false,
         backendChoice = BackendChoice.AUTO,
         theme = AppTheme.SYSTEM,
+        dynamicColor = true,
         magicPreset = "",
     )
 
@@ -87,6 +88,9 @@ object EngineState {
     val backendChoice = MutableStateFlow(DEFAULTS.backendChoice)
     val theme = MutableStateFlow(DEFAULTS.theme)
 
+    /** Material You colour from the wallpaper; off falls back to the app's own palette. */
+    val dynamicColor = MutableStateFlow(DEFAULTS.dynamicColor)
+
     /** MagicFeedback preset id, or "" for off. */
     val magicPreset = MutableStateFlow(DEFAULTS.magicPreset)
 
@@ -105,6 +109,7 @@ object EngineState {
         bypassSystemScaling = bypassSystemScaling.value,
         backendChoice = backendChoice.value,
         theme = theme.value,
+        dynamicColor = dynamicColor.value,
         magicPreset = magicPreset.value,
     )
 
@@ -123,6 +128,7 @@ object EngineState {
         bypassSystemScaling.value = s.bypassSystemScaling
         backendChoice.value = s.backendChoice
         theme.value = s.theme
+        dynamicColor.value = s.dynamicColor
         magicPreset.value = s.magicPreset
     }
 
@@ -147,6 +153,7 @@ object EngineState {
             enumOr(p.getString("backendChoice", null), BackendChoice.entries, DEFAULTS.backendChoice)
         theme.value = enumOr(p.getString("theme", null), AppTheme.entries, DEFAULTS.theme)
         magicPreset.value = p.getString("magicPreset", DEFAULTS.magicPreset) ?: DEFAULTS.magicPreset
+        dynamicColor.value = p.getBoolean("dynamicColor", DEFAULTS.dynamicColor)
     }
 
     fun save(context: Context) {
@@ -167,6 +174,7 @@ object EngineState {
             putString("backendChoice", s.backendChoice.name)
             putString("theme", s.theme.name)
             putString("magicPreset", s.magicPreset)
+            putBoolean("dynamicColor", s.dynamicColor)
         }.apply()
     }
 

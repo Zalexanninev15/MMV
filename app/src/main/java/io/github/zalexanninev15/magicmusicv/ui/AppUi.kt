@@ -2,7 +2,6 @@ package io.github.zalexanninev15.magicmusicv.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,8 +29,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -89,90 +86,76 @@ fun MagicMusicScreen(
     onImport: () -> Unit,
 ) {
     val context = LocalContext.current
-    val theme by EngineState.theme.collectAsState()
-    // Material You throughout: the palette is derived from the wallpaper on every option,
-    // so the setting only chooses light or dark, not a different colour system.
-    val dark = when (theme) {
-        AppTheme.SYSTEM -> isSystemInDarkTheme()
-        AppTheme.DARK -> true
-        AppTheme.LIGHT -> false
-    }
-    val colors = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    var tab by remember { mutableStateOf(Tab.PLAY) }
+    var showAbout by remember { mutableStateOf(false) }
 
-    MaterialTheme(colorScheme = colors) {
-        var tab by remember { mutableStateOf(Tab.PLAY) }
-        var showAbout by remember { mutableStateOf(false) }
+    val running by EngineState.running.collectAsState()
+    val error by EngineState.error.collectAsState()
+    val notice by EngineState.notice.collectAsState()
 
-        val running by EngineState.running.collectAsState()
-        val error by EngineState.error.collectAsState()
-        val notice by EngineState.notice.collectAsState()
+    if (showAbout) AboutDialog(version = version, onDismiss = { showAbout = false })
 
-        if (showAbout) AboutDialog(version = version, onDismiss = { showAbout = false })
+    Scaffold { inner ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .padding(horizontal = 20.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Magic Music V", style = MaterialTheme.typography.headlineSmall)
+                // Tonal fill rather than a bare TextButton: as plain text next to a
+                // headline it read as a label, not something you could press.
+                IconButton(onClick = { showAbout = true }) {
+                    Icon(
+                        Icons.Filled.Info,
+                        contentDescription = "About",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
 
-        Scaffold { inner ->
+            Row(
+                modifier = Modifier.padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Tab.entries.forEach { t ->
+                    Chip(t.label, tab == t, true) { tab = t }
+                }
+            }
+
+            error?.let { Warning(it) }
+            notice?.let { Notice(it) }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(inner)
-                    .padding(horizontal = 20.dp),
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Magic Music V", style = MaterialTheme.typography.headlineSmall)
-                    // Tonal fill rather than a bare TextButton: as plain text next to a
-                    // headline it read as a label, not something you could press.
-                    IconButton(onClick = { showAbout = true }) {
-                        Icon(
-                            Icons.Filled.Info,
-                            contentDescription = "About",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                Spacer(Modifier.height(4.dp))
+                when (tab) {
+                    Tab.PLAY -> PlayTab(running, onStart, onStop, onPreview)
+                    Tab.TUNE -> TuneTab(
+                        oplusAvailable, autoBackend, tapCandidates,
+                        onPreviewEffect, onPreviewMagic, onPreviewMagicBand,
+                    )
+                    Tab.SETUP -> SetupTab(
+                        tier, report, oplusAvailable, primitiveCount,
+                        autoBackend, autoReason, running, onExport, onExportProfile, onImport,
+                    )
                 }
-
-                Row(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Tab.entries.forEach { t ->
-                        Chip(t.label, tab == t, true) { tab = t }
-                    }
-                }
-
-                error?.let { Warning(it) }
-                notice?.let { Notice(it) }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Spacer(Modifier.height(4.dp))
-                    when (tab) {
-                        Tab.PLAY -> PlayTab(running, onStart, onStop, onPreview)
-                        Tab.TUNE -> TuneTab(
-                            oplusAvailable, autoBackend, tapCandidates,
-                            onPreviewEffect, onPreviewMagic, onPreviewMagicBand,
-                        )
-                        Tab.SETUP -> SetupTab(
-                            tier, report, oplusAvailable, primitiveCount,
-                            autoBackend, autoReason, running, onExport, onExportProfile, onImport,
-                        )
-                    }
-                    Spacer(Modifier.height(32.dp))
-                }
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
 }
-
-// ---------------------------------------------------------------- Play
 
 @Composable
 private fun PlayTab(
@@ -533,6 +516,7 @@ private fun SetupTab(
     val backendChoice by EngineState.backendChoice.collectAsState()
     val bypassScaling by EngineState.bypassSystemScaling.collectAsState()
     val theme by EngineState.theme.collectAsState()
+    val dynamicColor by EngineState.dynamicColor.collectAsState()
     val resolved = resolveBackend(backendChoice, autoBackend, oplusAvailable)
 
     Section("Haptic engine") {
@@ -540,7 +524,7 @@ private fun SetupTab(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     "Detected: " + when (resolved) {
-                        Backend.OPLUS_MMV -> "O-Haptics by MMV"
+                        Backend.OPLUS_MMV -> "O-Haptics by MMV (experimental)"
                         Backend.OPLUS -> "O-Haptics (vendor)"
                         Backend.AOSP ->
                             if (primitiveCount > 0) "AOSP primitives" else "AOSP one-shots"
@@ -571,7 +555,7 @@ private fun SetupTab(
                 Chip("O-Haptics", backendChoice == BackendChoice.OPLUS, !running) {
                     EngineState.backendChoice.value = BackendChoice.OPLUS
                 }
-                Chip("O-Haptics by MMV", backendChoice == BackendChoice.OPLUS_MMV, !running) {
+                Chip("O-Haptics by MMV *", backendChoice == BackendChoice.OPLUS_MMV, !running) {
                     EngineState.backendChoice.value = BackendChoice.OPLUS_MMV
                 }
             }
@@ -613,8 +597,19 @@ private fun SetupTab(
             Chip("Dark", theme == AppTheme.DARK, true) { EngineState.theme.value = AppTheme.DARK }
             Chip("Light", theme == AppTheme.LIGHT, true) { EngineState.theme.value = AppTheme.LIGHT }
         }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Switch(
+                checked = dynamicColor,
+                onCheckedChange = { EngineState.dynamicColor.value = it },
+            )
+            Text("Material You colours", style = MaterialTheme.typography.bodySmall)
+        }
         Text(
-            "Material You: colours come from your wallpaper.",
+            if (dynamicColor) "Palette comes from your wallpaper."
+            else "Using the app's own palette.",
             style = MaterialTheme.typography.bodySmall,
         )
     }

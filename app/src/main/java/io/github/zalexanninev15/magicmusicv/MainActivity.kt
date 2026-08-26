@@ -10,9 +10,12 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -24,6 +27,8 @@ import io.github.zalexanninev15.magicmusicv.service.HapticService
 import io.github.zalexanninev15.magicmusicv.settings.ProfileStore
 import io.github.zalexanninev15.magicmusicv.settings.SettingsCodec
 import io.github.zalexanninev15.magicmusicv.ui.MagicMusicScreen
+import io.github.zalexanninev15.magicmusicv.ui.MagicMusicTheme
+import io.github.zalexanninev15.magicmusicv.ui.isDarkTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -126,6 +131,25 @@ class MainActivity : ComponentActivity() {
         }.getOrNull() ?: "?"
 
         setContent {
+            val theme by EngineState.theme.collectAsState()
+            val dynamicColor by EngineState.dynamicColor.collectAsState()
+            val dark = isDarkTheme(theme)
+
+            // Bar icons follow the app's choice, not the system's. Without this, picking Light
+            // while the phone is in dark mode left light icons on a light bar.
+            LaunchedEffect(dark) {
+                val bars = if (dark) {
+                    SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
+                    )
+                }
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+            }
+
+            MagicMusicTheme(dark = dark, dynamicColor = dynamicColor) {
             MagicMusicScreen(
                 version = version,
                 tier = engine.tier,
@@ -181,6 +205,7 @@ class MainActivity : ComponentActivity() {
                 // and the format check happens on the contents instead.
                 onImport = { importLauncher.launch(arrayOf("*/*")) },
             )
+            }
         }
     }
 

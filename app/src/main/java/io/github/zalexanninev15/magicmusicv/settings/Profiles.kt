@@ -26,6 +26,7 @@ data class SettingsSnapshot(
     val theme: AppTheme,
     /** MagicFeedback preset id, or "" for off. */
     val magicPreset: String,
+    val dynamicColor: Boolean,
 )
 
 /**
@@ -61,6 +62,7 @@ object SettingsCodec {
         put("backendChoice", s.backendChoice.name)
         put("theme", s.theme.name)
         put("magicPreset", s.magicPreset)
+        put("dynamicColor", s.dynamicColor)
     }.toString(2)
 
     /** Returns null when the text is not one of our files. */
@@ -89,6 +91,7 @@ object SettingsCodec {
             ),
             theme = enumOr(o.optString("theme"), AppTheme.entries, defaults.theme),
             // Unknown preset ids degrade to off rather than to an arbitrary preset.
+            dynamicColor = o.optBoolean("dynamicColor", defaults.dynamicColor),
             magicPreset = o.optString("magicPreset", defaults.magicPreset)
                 .takeIf { it.isEmpty() || MagicFeedback.byId(it) != null } ?: "",
         )

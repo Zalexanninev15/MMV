@@ -3,131 +3,100 @@ package io.github.zalexanninev15.magicmusicv.haptics
 import io.github.zalexanninev15.magicmusicv.core.Band
 
 /**
- * "O-Haptics by MMV" — the whole vendor library used together instead of one effect per band.
+ * "O-Haptics by MMV" — an experimental layer *on top of* the O-Haptics backend.
  *
- * Plain O-Haptics fires the same effect for a band no matter how hard the hit was, and only
- * varies OPLUS's three strength steps. That flattens everything: a ghost note and a downbeat
- * are the same event at different volumes.
+ * The first version replaced the per-band effect with a voice chosen by hit strength. That
+ * was a mistake: its soft and mid voices were quieter than whatever the user had picked in
+ * the effect lab, so most of the music got weaker and only hard percussive hits registered
+ * at all.
  *
- * Here each band has three *voices* chosen by how hard the onset was, plus a separate voice
- * for taps that came from the predicted beat grid. A quiet hi-hat is a faint tick, a loud one
- * is a mechanical key press, and the downbeat is a different effect entirely — so the phone
- * plays a kit rather than a single pad.
+ * This version never substitutes anything. The base tap is exactly what plain O-Haptics
+ * would fire — same effect, same strength — and MMV only adds a second, shorter effect a
+ * few milliseconds behind it on the events worth marking: hard hits and predicted beats.
+ * Two impulses close together read as one event with a tail, which is what gives the extra
+ * body. Being purely additive, it cannot be weaker than the backend it sits on.
  *
- * Every list is candidates in preference order. Effects are looked up by constant name and
- * ids the ROM has already refused are skipped, so an unavailable effect costs the voice its
- * first choice and nothing more. The last entry of each list is one of the three plain graded
- * taps, which are the most widely supported effects on any OPLUS device.
+ * Still experimental, and deliberately not what Auto picks.
  */
 object MmvVoicing {
 
-    /** effect-name candidates, and which of OPLUS's three strength steps to fire it at. */
-    private data class Voice(val names: List<String>, val tier: Int)
-
-    private val lowSoft = Voice(
-        listOf("EFFECT_WEAK_SHORT_VIBRATE_ONCE", "EFFECT_WEAKEST_SHORT_VIBRATE_ONCE"), 1
-    )
-    private val lowMid = Voice(
-        listOf("EFFECT_MODERATE_SHORT_VIBRATE_ONCE", "EFFECT_WEAK_SHORT_VIBRATE_ONCE"), 2
-    )
-    private val lowHard = Voice(
-        listOf(
-            "EFFECT_PUBG_SHORT_GUN",
-            "EFFECT_CUSTOMIZED_CONFLICT",
-            "EFFECT_MODERATE_SHORT_VIBRATE_ONCE",
-        ), 2
-    )
-    private val lowAccent = Voice(
-        listOf(
-            "EFFECT_CUSTOMIZED_SPREAD_OUT",
-            "EFFECT_OTHER_WATERRIPPLE",
-            "EFFECT_PUBG_SHORT_GUN",
-            "EFFECT_MODERATE_SHORT_VIBRATE_ONCE",
-        ), 2
-    )
-
-    private val midSoft = Voice(
-        listOf("EFFECT_WEAKEST_SHORT_VIBRATE_ONCE", "EFFECT_WEAK_SHORT_VIBRATE_ONCE"), 1
-    )
-    private val midMid = Voice(
-        listOf(
-            "EFFECT_OTHER_KEYBOARD_STRONG",
-            "EFFECT_RAZER_LINEAR_PRESS",
-            "EFFECT_WEAK_SHORT_VIBRATE_ONCE",
-        ), 1
-    )
-    private val midHard = Voice(
-        listOf(
-            "EFFECT_OTHER_ELASTICITY",
-            "EFFECT_RAZER_CLICKY_PRESS",
-            "EFFECT_CUSTOMIZED_CONVERGE",
-            "EFFECT_MODERATE_SHORT_VIBRATE_ONCE",
-        ), 2
-    )
-
-    private val highSoft = Voice(
-        listOf("EFFECT_WEAKEST_SHORT_VIBRATE_ONCE"), 0
-    )
-    private val highMid = Voice(
-        listOf(
-            "EFFECT_OTHER_KEYBOARD_WEAK",
-            "EFFECT_WEAK_EMULATION_KEYBOARD_UP",
-            "EFFECT_WEAKEST_SHORT_VIBRATE_ONCE",
-        ), 0
-    )
-    private val highHard = Voice(
-        listOf(
-            "EFFECT_RAZER_CLICKY_PRESS",
-            "EFFECT_OTHER_KEYBOARD_STRONG",
-            "EFFECT_WEAK_SHORT_VIBRATE_ONCE",
-        ), 1
-    )
-
     /**
-     * Per-band minimum gap in ms. Tighter than the Magic presets because these voices are
-     * short effects, but not zero — the hard voices are textured and will overlap.
-     */
-    val gaps = intArrayOf(70, 55, 40)
-
-    /**
-     * Picks effect id and strength for one tap.
+     * Gap between the base tap and its garnish.
      *
-     * [level] is the already-scaled 0..1 magnitude (band gain and master intensity folded in),
-     * so lowering intensity moves taps down to softer voices rather than only quieting them.
+     * Below roughly 20 ms the actuator is still moving and the second impulse is swallowed;
+     * beyond about 40 ms the two stop fusing and you feel a flam instead of one richer hit.
      */
-    fun voice(band: Band, level: Float, accent: Boolean): Pair<Int, Int>? {
-        val v = when (band) {
-            Band.LOW -> when {
-                accent -> lowAccent
-                level >= 0.66f -> lowHard
-                level >= 0.36f -> lowMid
-                else -> lowSoft
-            }
-            Band.MID -> when {
-                level >= 0.66f -> midHard
-                level >= 0.36f -> midMid
-                else -> midSoft
-            }
-            Band.HIGH -> when {
-                level >= 0.66f -> highHard
-                level >= 0.36f -> highMid
-                else -> highSoft
-            }
+    const val LAYER_DELAY_MS = 28
+
+    /** Level above which an ordinary onset earns a garnish. */
+    private const val HARD = 0.66f
+
+    /** Deeper body behind a strong kick. */
+    private val lowGarnish = listOf(
+        "EFFECT_PUBG_SHORT_GUN",
+        "EFFECT_CUSTOMIZED_CONFLICT",
+        "EFFECT_MODERATE_SHORT_VIBRATE_ONCE",
+    )
+
+    /** Marks the predicted downbeat as a different kind of event, not just a louder one. */
+    private val beatGarnish = listOf(
+        "EFFECT_CUSTOMIZED_SPREAD_OUT",
+        "EFFECT_OTHER_WATERRIPPLE",
+        "EFFECT_PUBG_SHORT_GUN",
+        "EFFECT_MODERATE_SHORT_VIBRATE_ONCE",
+    )
+
+    /** Snap on a hard snare. */
+    private val midGarnish = listOf(
+        "EFFECT_OTHER_ELASTICITY",
+        "EFFECT_RAZER_CLICKY_PRESS",
+        "EFFECT_WEAK_SHORT_VIBRATE_ONCE",
+    )
+
+    /** Deliberately light — dense hi-hats garnished hard turn into a rattle. */
+    private val highGarnish = listOf(
+        "EFFECT_OTHER_KEYBOARD_WEAK",
+        "EFFECT_WEAK_EMULATION_KEYBOARD_UP",
+        "EFFECT_WEAKEST_SHORT_VIBRATE_ONCE",
+    )
+
+    /**
+     * Extra effect to layer behind the base tap, as (effect id, strength), or null when this
+     * tap should be left alone.
+     *
+     * [level] is the already-scaled magnitude with band gain and master intensity folded in.
+     */
+    fun garnish(band: Band, level: Float, accent: Boolean): Pair<Int, Int>? {
+        if (accent) {
+            val id = OplusHaptics.pick(beatGarnish) ?: return null
+            return id to OplusHaptics.strengthStrong
         }
-        val id = OplusHaptics.pick(v.names) ?: return null
-        return id to OplusHaptics.strengthOf(v.tier)
+        if (level < HARD) return null
+        val names = when (band) {
+            Band.LOW -> lowGarnish
+            Band.MID -> midGarnish
+            Band.HIGH -> highGarnish
+        }
+        val id = OplusHaptics.pick(names) ?: return null
+        val strength = when (band) {
+            Band.HIGH -> OplusHaptics.strengthLight
+            Band.MID -> OplusHaptics.strengthMedium
+            Band.LOW -> OplusHaptics.strengthStrong
+        }
+        return id to strength
     }
 
     /** Human-readable summary for the setup card. */
     fun describe(): List<String> {
-        fun n(v: Voice): String =
-            v.names.firstOrNull { OplusHaptics.effectConstants.containsKey(it) }
+        fun n(names: List<String>): String =
+            names.firstOrNull { OplusHaptics.effectConstants.containsKey(it) }
                 ?.removePrefix("EFFECT_") ?: "unavailable"
         return listOf(
-            "low   ${n(lowSoft)} / ${n(lowMid)} / ${n(lowHard)}",
-            "beat  ${n(lowAccent)}",
-            "mid   ${n(midSoft)} / ${n(midMid)} / ${n(midHard)}",
-            "high  ${n(highSoft)} / ${n(highMid)} / ${n(highHard)}",
+            "base    your O-Haptics effects, unchanged",
+            "+beat   ${n(beatGarnish)}",
+            "+low    ${n(lowGarnish)}",
+            "+mid    ${n(midGarnish)}",
+            "+high   ${n(highGarnish)}",
         )
     }
 }
