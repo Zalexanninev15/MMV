@@ -8,8 +8,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.MediaPlayer
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -23,10 +25,16 @@ import io.github.zalexanninev15.magicmusicv.R
 import io.github.zalexanninev15.magicmusicv.audio.AudioSourceReader
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.core.Band
+import io.github.zalexanninev15.magicmusicv.core.CachedBeatGrid
+import io.github.zalexanninev15.magicmusicv.core.FluxFrame
 import io.github.zalexanninev15.magicmusicv.core.OnsetDetector
+import io.github.zalexanninev15.magicmusicv.core.OnsetThresholder
 import io.github.zalexanninev15.magicmusicv.core.TempoTracker
 import io.github.zalexanninev15.magicmusicv.haptics.HapticEngine
 import io.github.zalexanninev15.magicmusicv.haptics.Tap
+import io.github.zalexanninev15.magicmusicv.library.CachedTrack
+import io.github.zalexanninev15.magicmusicv.library.LibraryState
+import io.github.zalexanninev15.magicmusicv.library.LibraryStore
 import kotlin.math.roundToInt
 
 class HapticService : Service() {
@@ -36,12 +44,23 @@ class HapticService : Service() {
     private lateinit var tempo: TempoTracker
     private lateinit var reader: AudioSourceReader
 
+    // Cached-playback path. Its own OnsetThresholder rather than reusing `detector`'s: no
+    // FFT is involved here, flux comes pre-computed from disk, and reusing the field name
+    // would blur which path is currently driving the frame counter / median history.
+    private val cachedThresholder = OnsetThresholder()
+    private var player: MediaPlayer? = null
+    private var cachedTrack: CachedTrack? = null
+    private var cachedFrames: List<FluxFrame> = emptyList()
+    private var cachedBeatGrid: CachedBeatGrid? = null
+    private var cachedCursor = 0
+    private var lastScheduledBeatMs = Float.NaN
+    private var pollRunnable: Runnable? = null
+
     private var projection: MediaProjection? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val main = Handler(Looper.getMainLooper())
 
     private var lastScheduledBeat = Long.MIN_VALUE
-    private var lastBeatTapFrame = Long.MIN_VALUE / 4
     private var beatStrength = 0.85f
     private var uiTick = 0
 
@@ -71,10 +90,10 @@ class HapticService : Service() {
         }
 
         val source = EngineState.source.value
-        val fgsType = if (source == SourceKind.PLAYBACK_CAPTURE) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        } else {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        val fgsType = when (source) {
+            SourceKind.PLAYBACK_CAPTURE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            SourceKind.MICROPHONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            SourceKind.LOCAL_LIBRARY -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
         }
         // Android 14+ requires the foreground service to be running with the
         // mediaProjection type *before* getMediaProjection() is called, so this has to
@@ -104,10 +123,15 @@ class HapticService : Service() {
 
         acquireWakeLock()
         applySettings()
+        EngineState.tapCount.value = 0
+
+        if (source == SourceKind.LOCAL_LIBRARY) {
+            return startCachedPlayback()
+        }
+
         detector.reset()
         tempo.reset()
         lastScheduledBeat = Long.MIN_VALUE
-        EngineState.tapCount.value = 0
 
         val ok = reader.start(
             kind = source,
@@ -121,6 +145,8 @@ class HapticService : Service() {
         EngineState.running.value = true
         return START_STICKY
     }
+
+    // ---------------------------------------------------------------- live capture
 
     private fun applySettings() {
         engine.intensity = EngineState.intensity.value
@@ -143,23 +169,28 @@ class HapticService : Service() {
     private var lastEffects = intArrayOf(-1, -1, -1)
 
     /**
-     * Pulls the tunable settings across on every hop.
+     * Pulls the tunable settings across on every hop/tick, live and cached alike.
      *
-     * These used to be copied once in onStartCommand, which froze intensity, sensitivity and
-     * the band switches for the whole session — moving a slider did nothing until you stopped
-     * and started again. Volatile writes at 188 Hz cost nothing; the two allocating fields are
-     * only rebuilt when they actually change.
+     * These used to be copied once in onStartCommand, which froze intensity, sensitivity
+     * and the band switches for the whole session — moving a slider did nothing until you
+     * stopped and started again. Volatile writes at audio-thread rate cost nothing; the
+     * two allocating fields are only rebuilt when they actually change.
      */
     private fun pullLiveSettings() {
         engine.intensity = EngineState.intensity.value
-        detector.sensitivity = EngineState.sensitivity.value
         engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
         engine.magicPresetId = EngineState.magicPreset.value.takeIf { it.isNotEmpty() }
 
+        detector.sensitivity = EngineState.sensitivity.value
         val be = detector.bandEnabled
         be[0] = EngineState.bandLow.value
         be[1] = EngineState.bandMid.value
         be[2] = EngineState.bandHigh.value
+        // Cached playback shares the same array rather than getting its own copy: the two
+        // paths never run concurrently, and this keeps "sensitivity/bands mean the same
+        // thing" true by construction instead of by two call sites staying in sync.
+        cachedThresholder.sensitivity = EngineState.sensitivity.value
+        cachedThresholder.bandEnabled = be
 
         val lo = EngineState.effectLow.value
         val mi = EngineState.effectMid.value
@@ -191,7 +222,6 @@ class HapticService : Service() {
                 val deltaMs = (next - frame) * hopMs + offset
                 if (deltaMs >= 0f && deltaMs <= LOOKAHEAD_MS) {
                     lastScheduledBeat = next
-                    lastBeatTapFrame = next
                     engine.play(Tap(Band.LOW, beatStrength, deltaMs.roundToInt(), accent = true))
                     EngineState.tapCount.value++
                 }
@@ -225,6 +255,145 @@ class HapticService : Service() {
         }
     }
 
+    // ---------------------------------------------------------------- cached local playback
+
+    /**
+     * Starts MMV's own player against the selected library track, using its cached flux
+     * instead of a live capture. No AudioRecord, no FFT, no screen-capture consent — the
+     * expensive half of the pipeline already ran once when the track was analysed.
+     */
+    private fun startCachedPlayback(): Int {
+        val uri = LibraryState.selectedTrackUri.value
+        val cached = uri?.let { u -> LibraryStore.cachedTracks(this)[u] }
+        if (uri == null || cached == null) {
+            stopEverything("No analysed track selected")
+            return START_NOT_STICKY
+        }
+        val frames = LibraryStore.readFlux(this, cached)
+        if (frames == null) {
+            stopEverything("Cached analysis for \"${cached.displayName}\" is unreadable — re-analyse it")
+            return START_NOT_STICKY
+        }
+
+        cachedTrack = cached
+        cachedFrames = frames
+        cachedCursor = 0
+        lastScheduledBeatMs = Float.NaN
+        beatStrength = 0.85f
+        cachedThresholder.reset()
+        cachedBeatGrid = if (cached.beatConfidence >= TempoTracker.MIN_CONFIDENCE) {
+            CachedBeatGrid(cached.beatPeriodMs, cached.beatAnchorMs, cached.beatConfidence)
+        } else {
+            null
+        }
+
+        val mp = try {
+            MediaPlayer().apply {
+                setDataSource(this@HapticService, Uri.parse(uri))
+                setOnCompletionListener { stopEverything(null) }
+                setOnErrorListener { _, _, _ ->
+                    main.post { stopEverything("Playback failed for \"${cached.displayName}\"") }
+                    true
+                }
+                prepare()
+                start()
+            }
+        } catch (e: Exception) {
+            stopEverything("Could not play \"${cached.displayName}\": ${e.message}")
+            return START_NOT_STICKY
+        }
+        player = mp
+
+        EngineState.bpm.value = cached.bpm
+        EngineState.confidence.value = cached.beatConfidence
+        EngineState.error.value = null
+        EngineState.running.value = true
+
+        val tick = object : Runnable {
+            override fun run() {
+                cachedTick()
+                pollRunnable?.let { main.postDelayed(it, POLL_MS) }
+            }
+        }
+        pollRunnable = tick
+        main.postDelayed(tick, POLL_MS)
+
+        return START_STICKY
+    }
+
+    /**
+     * One poll of cached playback: replays every hop the player has moved past since the
+     * last tick through [cachedThresholder] (never just the current one — the adaptive
+     * median needs every hop in order, the same as live capture does), then schedules the
+     * next predicted beat exactly as [onHop] does but against milliseconds instead of
+     * analysis frames.
+     *
+     * Deliberately mirrors [onHop]'s branching rather than sharing code with it: the two
+     * operate on different time bases (frame index vs. player position in ms), and a
+     * shared abstraction over both wasn't worth the complexity for this pass.
+     */
+    private fun cachedTick() {
+        val mp = player ?: return
+        val track = cachedTrack ?: return
+        if (!mp.isPlaying) return
+
+        pullLiveSettings()
+        val mode = EngineState.mode.value
+        val offset = EngineState.offsetMs.value
+        val hopMs = track.hopSeconds * 1000f
+        val posMs = mp.currentPosition.toFloat()
+
+        val targetHop = (posMs / hopMs).toInt().coerceAtMost(cachedFrames.size)
+        while (cachedCursor < targetHop) {
+            val frame = cachedFrames[cachedCursor]
+            val hopTimeMs = cachedCursor * hopMs
+            val onsets = cachedThresholder.accept(frame)
+            if (onsets.isNotEmpty()) {
+                val delay = offset.coerceAtLeast(0)
+                for (o in onsets) {
+                    if (o.band == Band.LOW) beatStrength = 0.6f * beatStrength + 0.4f * o.strength
+                    val onGrid = cachedBeatGrid?.isOnBeat(hopTimeMs, 2 * hopMs) == true
+                    val emit = when (mode) {
+                        Mode.ONSET -> true
+                        Mode.BEAT -> false
+                        Mode.HYBRID -> o.band != Band.LOW && !onGrid
+                    }
+                    if (!emit) continue
+                    val strength = if (mode == Mode.HYBRID) o.strength * 0.7f else o.strength
+                    engine.play(Tap(o.band, strength, delay))
+                    EngineState.tapCount.value++
+                }
+            }
+            EngineState.level.value = (frame.sum / 4f).coerceIn(0f, 1f)
+            cachedCursor++
+        }
+
+        if (mode == Mode.BEAT || mode == Mode.HYBRID) {
+            val grid = cachedBeatGrid
+            val next = grid?.nextBeat(posMs)
+            if (next != null && next != lastScheduledBeatMs) {
+                val deltaMs = (next - posMs) + offset
+                if (deltaMs >= 0f && deltaMs <= LOOKAHEAD_MS) {
+                    lastScheduledBeatMs = next
+                    engine.play(Tap(Band.LOW, beatStrength, deltaMs.roundToInt(), accent = true))
+                    EngineState.tapCount.value++
+                }
+            }
+        }
+    }
+
+    private fun stopCachedPlayback() {
+        pollRunnable?.let { main.removeCallbacks(it) }
+        pollRunnable = null
+        player?.let { runCatching { it.stop() }; runCatching { it.release() } }
+        player = null
+        cachedTrack = null
+        cachedFrames = emptyList()
+        cachedBeatGrid = null
+    }
+
+    // ---------------------------------------------------------------- lifecycle
+
     private fun acquireWakeLock() {
         val pm = getSystemService(PowerManager::class.java)
         // A foreground service keeps the process alive but does not guarantee the CPU
@@ -238,6 +407,7 @@ class HapticService : Service() {
 
     private fun stopEverything(message: String?) {
         reader.stop()
+        stopCachedPlayback()
         engine.cancel()
         projection?.let {
             runCatching { it.unregisterCallback(projectionCallback) }
@@ -257,6 +427,7 @@ class HapticService : Service() {
 
     override fun onDestroy() {
         reader.stop()
+        stopCachedPlayback()
         wakeLock?.let { if (it.isHeld) it.release() }
         EngineState.running.value = false
         super.onDestroy()
@@ -300,6 +471,7 @@ class HapticService : Service() {
         private const val CHANNEL_ID = "magicmusicv.engine"
         private const val NOTIF_ID = 1001
         private const val LOOKAHEAD_MS = 260f
+        private const val POLL_MS = 30L
 
         fun start(context: Context, resultCode: Int, resultData: Intent?) {
             val i = Intent(context, HapticService::class.java)

@@ -2,9 +2,11 @@
 
 package io.github.zalexanninev15.magicmusicv.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,14 +15,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -35,6 +40,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +83,8 @@ import io.github.zalexanninev15.magicmusicv.haptics.HapticTier
 import io.github.zalexanninev15.magicmusicv.haptics.MagicFeedback
 import io.github.zalexanninev15.magicmusicv.haptics.MmvVoicing
 import io.github.zalexanninev15.magicmusicv.haptics.OplusHaptics
+import io.github.zalexanninev15.magicmusicv.library.LibraryState
+import io.github.zalexanninev15.magicmusicv.library.LibraryStore
 import io.github.zalexanninev15.magicmusicv.haptics.resolveBackend
 import io.github.zalexanninev15.magicmusicv.oem.OemSupport
 import io.github.zalexanninev15.magicmusicv.oem.Vendor
@@ -91,7 +99,9 @@ private val ScreenMargin = 16.dp
 private val SectionGap = 24.dp
 private val ItemGap = 8.dp
 
-private enum class Dest(val label: String) { PLAY("Play"), TUNE("Tune"), SETUP("Setup") }
+private enum class Dest(val label: String) {
+    PLAY("Play"), TUNE("Tune"), LIBRARY("Library"), SETUP("Setup")
+}
 
 @Composable
 fun MagicMusicScreen(
@@ -112,6 +122,10 @@ fun MagicMusicScreen(
     onExport: () -> Unit,
     onExportProfile: (String) -> Unit,
     onImport: () -> Unit,
+    onPickLibraryFolder: () -> Unit,
+    onAnalyzeLibrary: () -> Unit,
+    onSelectTrack: (String) -> Unit,
+    onDeleteTrackCache: (String) -> Unit,
 ) {
     var dest by remember { mutableStateOf(Dest.PLAY) }
     var showAbout by remember { mutableStateOf(false) }
@@ -162,6 +176,7 @@ fun MagicMusicScreen(
                                 when (d) {
                                     Dest.PLAY -> Icons.Filled.PlayArrow
                                     Dest.TUNE -> Icons.Filled.Build
+                                    Dest.LIBRARY -> Icons.Filled.List
                                     Dest.SETUP -> Icons.Filled.Settings
                                 },
                                 contentDescription = null,
@@ -175,7 +190,21 @@ fun MagicMusicScreen(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { if (running) onStop() else onStart() },
-                icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                icon = {
+                    if (running) {
+                        // A filled square is the universal stop glyph. Drawn directly rather
+                        // than pulled from Icons.Filled.Stop, which lives in
+                        // material-icons-extended — a few-MB artifact this app doesn't
+                        // otherwise depend on, not worth adding for one icon.
+                        Box(
+                            Modifier
+                                .size(18.dp)
+                                .background(LocalContentColor.current, RoundedCornerShape(3.dp)),
+                        )
+                    } else {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                    }
+                },
                 text = { Text(if (running) "Stop" else "Start") },
             )
         },
@@ -196,6 +225,13 @@ fun MagicMusicScreen(
                 Dest.TUNE -> TuneTab(
                     oplusAvailable, autoBackend, tapCandidates,
                     onPreviewEffect, onPreviewMagic, onPreviewMagicBand,
+                )
+
+                Dest.LIBRARY -> LibraryTab(
+                    onPickFolder = onPickLibraryFolder,
+                    onAnalyze = onAnalyzeLibrary,
+                    onSelectTrack = onSelectTrack,
+                    onDeleteCache = onDeleteTrackCache,
                 )
 
                 Dest.SETUP -> SetupTab(
@@ -259,19 +295,31 @@ private fun PlayTab(onPreview: () -> Unit) {
 
     Section("Source", "Where the audio comes from") {
         Choice(
-            options = listOf("System audio", "Microphone"),
-            selectedIndex = if (source == SourceKind.PLAYBACK_CAPTURE) 0 else 1,
+            options = listOf("System audio", "Microphone", "Library"),
+            selectedIndex = when (source) {
+                SourceKind.PLAYBACK_CAPTURE -> 0
+                SourceKind.MICROPHONE -> 1
+                SourceKind.LOCAL_LIBRARY -> 2
+            },
             enabled = !running,
         ) {
-            EngineState.source.value =
-                if (it == 0) SourceKind.PLAYBACK_CAPTURE else SourceKind.MICROPHONE
+            EngineState.source.value = when (it) {
+                0 -> SourceKind.PLAYBACK_CAPTURE
+                1 -> SourceKind.MICROPHONE
+                else -> SourceKind.LOCAL_LIBRARY
+            }
         }
         Supporting(
-            if (source == SourceKind.PLAYBACK_CAPTURE)
-                "Needs the screen-capture prompt. Apps that block audio capture, such as " +
-                    "Spotify and YouTube Music, stay silent here."
-            else
-                "Works with anything audible on speakers. Useless on headphones."
+            when (source) {
+                SourceKind.PLAYBACK_CAPTURE ->
+                    "Needs the screen-capture prompt. Apps that block audio capture, such as " +
+                        "Spotify and YouTube Music, stay silent here."
+                SourceKind.MICROPHONE ->
+                    "Works with anything audible on speakers. Useless on headphones."
+                SourceKind.LOCAL_LIBRARY ->
+                    "Plays a track MMV has already analysed — no live capture, no FFT while " +
+                        "it plays. Pick a track in the Library tab first."
+            }
         )
     }
 
@@ -494,6 +542,105 @@ private fun MagicSection(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Library
+
+@Composable
+private fun LibraryTab(
+    onPickFolder: () -> Unit,
+    onAnalyze: () -> Unit,
+    onSelectTrack: (String) -> Unit,
+    onDeleteCache: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val tracks by LibraryState.tracks.collectAsState()
+    val cache by LibraryState.cache.collectAsState()
+    val analyzing by LibraryState.analyzing.collectAsState()
+    val progress by LibraryState.progress.collectAsState()
+    val current by LibraryState.currentlyAnalyzing.collectAsState()
+    val selected by LibraryState.selectedTrackUri.collectAsState()
+
+    Section("Local library", "FLAC, MP3, M4A, Opus — analysed once, cached on device") {
+        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
+            FilledTonalButton(modifier = Modifier.weight(1f), onClick = onPickFolder) {
+                Text(if (tracks.isEmpty()) "Choose folder" else "Change folder")
+            }
+            val pending = tracks.count { cache[it.uri] == null }
+            Button(
+                modifier = Modifier.weight(1f),
+                enabled = !analyzing && pending > 0,
+                onClick = onAnalyze,
+            ) { Text(if (pending > 0) "Analyse ($pending)" else "All analysed") }
+        }
+        if (analyzing) {
+            val (done, total) = progress
+            LinearProgressIndicator(
+                progress = { if (total > 0) done.toFloat() / total else 0f },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Supporting("Analysing ${current ?: "…"} ($done/$total)")
+        }
+        if (tracks.isNotEmpty()) {
+            val cachedBytes = remember(cache) { LibraryStore.cacheSizeBytes(context) }
+            Supporting(
+                "${tracks.size} files, ${cache.size} analysed, " +
+                    "${"%.1f".format(cachedBytes / 1_048_576f)} MB cached on device"
+            )
+        }
+    }
+
+    if (tracks.isEmpty()) {
+        Supporting(
+            "No folder chosen yet. Analysis decodes each file once and caches the result — " +
+                "the first pass takes a while for a big folder, playback afterwards costs no " +
+                "live analysis at all."
+        )
+        return
+    }
+
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        LazyColumn(Modifier.heightIn(max = 420.dp)) {
+            items(tracks.size) { i ->
+                val track = tracks[i]
+                val cached = cache[track.uri]
+                val isSelected = track.uri == selected
+                ListItem(
+                    headlineContent = { Text(track.displayName) },
+                    supportingContent = {
+                        Text(
+                            when {
+                                cached == null -> "Not analysed"
+                                cached.bpm > 0f -> "${cached.bpm.roundToInt()} BPM · " +
+                                    "${cached.durationMs / 1000 / 60}:" +
+                                    "${(cached.durationMs / 1000 % 60).toString().padStart(2, '0')}"
+                                else -> "Analysed, no steady tempo found"
+                            }
+                        )
+                    },
+                    trailingContent = if (cached != null) {
+                        {
+                            IconButton(onClick = { onDeleteCache(track.uri) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Remove cache")
+                            }
+                        }
+                    } else {
+                        null
+                    },
+                    colors = ListItemDefaults.colors(
+                        containerColor = if (isSelected) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                    ),
+                    modifier = Modifier.clickable(enabled = cached != null) {
+                        onSelectTrack(track.uri)
+                    },
+                )
             }
         }
     }

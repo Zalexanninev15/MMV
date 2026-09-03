@@ -23,6 +23,8 @@ import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.haptics.HapticEngine
 import io.github.zalexanninev15.magicmusicv.haptics.HapticsReport
 import io.github.zalexanninev15.magicmusicv.haptics.OplusHaptics
+import io.github.zalexanninev15.magicmusicv.library.LibraryState
+import io.github.zalexanninev15.magicmusicv.library.LibraryStore
 import io.github.zalexanninev15.magicmusicv.service.HapticService
 import io.github.zalexanninev15.magicmusicv.settings.ProfileStore
 import io.github.zalexanninev15.magicmusicv.settings.SettingsCodec
@@ -87,6 +89,14 @@ class MainActivity : ComponentActivity() {
         }.onFailure { EngineState.error.value = "Export failed: ${it.message}" }
     }
 
+    private val folderPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        LibraryStore.setFolder(this, uri)
+        LibraryState.refresh(this)
+    }
+
     private val importLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -111,6 +121,9 @@ class MainActivity : ComponentActivity() {
         OplusHaptics.probe(this)
         engine = HapticEngine(this)
         EngineState.load(this)
+        // Repopulates the track list from a folder chosen in a previous session; the SAF
+        // grant is persisted, so this needs no re-prompt.
+        LibraryState.refresh(this)
 
         // Built once at startup. Shown in-app and written to a file, because OxygenOS and
         // ColorOS suppress third-party logcat output unless full logging is enabled in the
@@ -204,6 +217,16 @@ class MainActivity : ComponentActivity() {
                 // Some file managers hand JSON back as octet-stream, so the filter stays wide
                 // and the format check happens on the contents instead.
                 onImport = { importLauncher.launch(arrayOf("*/*")) },
+                onPickLibraryFolder = { folderPickerLauncher.launch(null) },
+                onAnalyzeLibrary = { LibraryState.analyzeAll(this) },
+                onSelectTrack = { uri ->
+                    LibraryState.selectedTrackUri.value = uri
+                    EngineState.source.value = SourceKind.LOCAL_LIBRARY
+                },
+                onDeleteTrackCache = { uri ->
+                    LibraryStore.deleteCache(this, uri)
+                    LibraryState.refresh(this)
+                },
             )
             }
         }
@@ -220,8 +243,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestAndStart() {
+        val source = EngineState.source.value
+
+        if (source == SourceKind.LOCAL_LIBRARY && LibraryState.selectedTrackUri.value == null) {
+            EngineState.error.value = "Pick an analysed track in Library first"
+            return
+        }
+
         val needed = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+        // Local library playback uses MMV's own decoder, not the microphone — asking for
+        // RECORD_AUDIO here would be a permission prompt with nothing behind it.
+        if (source != SourceKind.LOCAL_LIBRARY &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) needed += Manifest.permission.RECORD_AUDIO
 
@@ -239,11 +272,12 @@ class MainActivity : ComponentActivity() {
 
     private fun launchEngine() {
         EngineState.error.value = null
-        if (EngineState.source.value == SourceKind.PLAYBACK_CAPTURE) {
-            val mgr = getSystemService(MediaProjectionManager::class.java)
-            projectionLauncher.launch(mgr.createScreenCaptureIntent())
-        } else {
-            HapticService.start(this, 0, null)
+        when (EngineState.source.value) {
+            SourceKind.PLAYBACK_CAPTURE -> {
+                val mgr = getSystemService(MediaProjectionManager::class.java)
+                projectionLauncher.launch(mgr.createScreenCaptureIntent())
+            }
+            SourceKind.MICROPHONE, SourceKind.LOCAL_LIBRARY -> HapticService.start(this, 0, null)
         }
     }
 }

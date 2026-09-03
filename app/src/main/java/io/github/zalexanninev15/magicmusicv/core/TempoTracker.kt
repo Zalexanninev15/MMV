@@ -30,6 +30,16 @@ class TempoTracker(private val hopSeconds: Float) {
     private var anchorFrame = -1L                 // absolute frame of a known beat
     private var lastAnalysis = 0L
 
+    /**
+     * Anchor beat position in seconds, or null with no lock yet. Exposed so
+     * `library/TrackAnalyzer.kt` can run this tracker across a whole file once and persist
+     * the converged estimate — [CachedBeatGrid] replays it during playback without redoing
+     * any of the autocorrelation.
+     */
+    val anchorSeconds: Float? get() = if (periodFrames > 0 && anchorFrame >= 0) anchorFrame * hopSeconds else null
+
+    val periodSeconds: Float? get() = if (periodFrames > 0) periodFrames * hopSeconds else null
+
     fun push(flux: Float) {
         env[pos] = flux
         pos = (pos + 1) % size

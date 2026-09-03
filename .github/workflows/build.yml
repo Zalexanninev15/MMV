@@ -32,17 +32,47 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
-
-      - name: Rename artifact
+      # Without this the APK is signed with a debug key the runner generates fresh on every
+      # run, so no two builds share a signature and each one has to be installed over an
+      # uninstall. With it, every build updates the last cleanly.
+      - name: Decode keystore
+        if: ${{ secrets.KEYSTORE_B64 != '' }}
         run: |
+          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/mmv.jks"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/mmv.jks" >> "$GITHUB_ENV"
+
+      - name: Build release APKs
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: gradle --no-daemon assembleRelease
+
+      - name: Collect and name APKs
+        run: |
+          set -eu
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk "out/magic-music-v-${GITHUB_SHA::7}.apk"
+          VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
+          SHA="${GITHUB_SHA::7}"
+          for f in app/build/outputs/apk/release/*.apk; do
+            name=$(basename "$f")
+            # app-arm64-v8a-release.apk -> arm64-v8a ; app-universal-release.apk -> universal
+            abi=$(echo "$name" | sed -e 's/^app-//' -e 's/-release[^.]*\.apk$//')
+            cp "$f" "out/magic-music-v-${VERSION}-${abi}-${SHA}.apk"
+          done
+          ls -la out
+
+      - name: Report signing status
+        run: |
+          if [ -n "${KEYSTORE_FILE:-}" ]; then
+            echo "Signed with the release keystore."
+          else
+            echo "::warning::No KEYSTORE_B64 secret set - APKs are debug-signed and their signature changes every run."
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: magic-music-v-apk
+          name: magic-music-v-apks
           path: out/*.apk
           if-no-files-found: error
 
