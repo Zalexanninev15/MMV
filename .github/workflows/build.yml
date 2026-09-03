@@ -35,11 +35,20 @@ jobs:
       # Without this the APK is signed with a debug key the runner generates fresh on every
       # run, so no two builds share a signature and each one has to be installed over an
       # uninstall. With it, every build updates the last cleanly.
+      # The presence check runs in the shell, not in an `if:` — the `secrets` context is not
+      # available in step-level conditions. Passing the value through `env` also keeps it out
+      # of the script text, so a password containing quotes or $ cannot break the step.
       - name: Decode keystore
-        if: ${{ secrets.KEYSTORE_B64 != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
         run: |
-          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/mmv.jks"
-          echo "KEYSTORE_FILE=$RUNNER_TEMP/mmv.jks" >> "$GITHUB_ENV"
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/mmv.jks"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/mmv.jks" >> "$GITHUB_ENV"
+            echo "Keystore decoded."
+          else
+            echo "No KEYSTORE_B64 secret set."
+          fi
 
       - name: Build release APKs
         env:
