@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -22,6 +23,8 @@ object LibraryState {
     /** (done, total) while [analyzing] is true. */
     val progress = MutableStateFlow(0 to 0)
     val currentlyAnalyzing = MutableStateFlow<String?>(null)
+    /** Tracks the decoder could not handle in the current run. */
+    val failed = MutableStateFlow(0)
 
     val selectedTrackUri = MutableStateFlow<String?>(null)
 
@@ -40,13 +43,18 @@ object LibraryState {
         if (pending.isEmpty()) return
 
         analyzing.value = true
+        failed.value = 0
         progress.value = 0 to pending.size
         analyzeJob = scope.launch {
             for ((i, track) in pending.withIndex()) {
+                // Cancellation is cooperative and TrackAnalyzer.analyze is a long blocking
+                // call, so the only place the job can stop is between tracks.
+                if (!isActive) break
+
                 currentlyAnalyzing.value = track.displayName
                 val result = TrackAnalyzer.analyze(context, track) { }
                 if (result != null) {
-                    LibraryStore.store(
+                    val stored = LibraryStore.store(
                         context = context,
                         track = track,
                         sampleRate = result.sampleRate,
@@ -58,9 +66,18 @@ object LibraryState {
                         beatConfidence = result.beatConfidence,
                         frames = result.frames,
                     )
+                    // Publish after every track, not once at the end. Emitting only on
+                    // completion left the list and the counters reading zero for the whole
+                    // run — on a 360-file folder that is many minutes of the UI claiming
+                    // nothing had been done. Merging into the existing map keeps this O(1);
+                    // re-reading the index from disk per track would be O(n^2).
+                    cache.value = cache.value + (stored.uri to stored)
+                } else {
+                    failed.value += 1
                 }
                 progress.value = (i + 1) to pending.size
             }
+            // Reconcile once at the end in case anything was written outside this loop.
             cache.value = LibraryStore.cachedTracks(context)
             currentlyAnalyzing.value = null
             analyzing.value = false

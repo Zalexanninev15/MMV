@@ -562,6 +562,7 @@ private fun LibraryTab(
     val analyzing by LibraryState.analyzing.collectAsState()
     val progress by LibraryState.progress.collectAsState()
     val current by LibraryState.currentlyAnalyzing.collectAsState()
+    val failed by LibraryState.failed.collectAsState()
     val selected by LibraryState.selectedTrackUri.collectAsState()
 
     Section("Local library", "FLAC, MP3, M4A, Opus — analysed once, cached on device") {
@@ -585,11 +586,14 @@ private fun LibraryTab(
             Supporting("Analysing ${current ?: "…"} ($done/$total)")
         }
         if (tracks.isNotEmpty()) {
-            val cachedBytes = remember(cache) { LibraryStore.cacheSizeBytes(context) }
+            val cachedBytes = remember(cache.size) { LibraryStore.cacheSizeBytes(context) }
             Supporting(
                 "${tracks.size} files, ${cache.size} analysed, " +
                     "${"%.1f".format(cachedBytes / 1_048_576f)} MB cached on device"
             )
+            if (failed > 0) {
+                Supporting("$failed could not be decoded and were skipped.")
+            }
         }
     }
 
