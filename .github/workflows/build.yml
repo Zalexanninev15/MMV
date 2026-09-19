@@ -21,10 +21,18 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # The action's default package list is "tools platform-tools". Google retired the
+      # obsolete `tools` package and cmdline-tools 16 no longer serves it, so the default
+      # makes the action itself fail before the build starts. Ask for nothing here and let
+      # the explicit sdkmanager step below install exactly what the build needs.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ""
 
       - name: Install SDK packages
-        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          yes | sdkmanager --licenses > /dev/null || true
 
       # No gradle-wrapper.jar is committed (it is a binary blob), so Gradle comes from
       # the action instead. Run `gradle wrapper` once locally if you want ./gradlew.
