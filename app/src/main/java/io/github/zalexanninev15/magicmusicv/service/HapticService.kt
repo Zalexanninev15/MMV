@@ -21,6 +21,7 @@ import androidx.core.app.ServiceCompat
 import io.github.zalexanninev15.magicmusicv.EngineState
 import io.github.zalexanninev15.magicmusicv.MainActivity
 import io.github.zalexanninev15.magicmusicv.Mode
+import io.github.zalexanninev15.magicmusicv.Pulse
 import io.github.zalexanninev15.magicmusicv.R
 import io.github.zalexanninev15.magicmusicv.audio.AudioSourceReader
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
@@ -223,6 +224,8 @@ class HapticService : Service() {
                 if (deltaMs >= 0f && deltaMs <= LOOKAHEAD_MS) {
                     lastScheduledBeat = next
                     engine.play(Tap(Band.LOW, beatStrength, deltaMs.roundToInt(), accent = true))
+                    EngineState.pulse.value =
+                        Pulse(System.nanoTime(), Band.LOW.ordinal, beatStrength, true)
                     EngineState.tapCount.value++
                 }
             }
@@ -242,6 +245,8 @@ class HapticService : Service() {
                 if (!emit) continue
                 val strength = if (mode == Mode.HYBRID) o.strength * 0.7f else o.strength
                 engine.play(Tap(o.band, strength, delay))
+                EngineState.pulse.value =
+                    Pulse(System.nanoTime(), o.band.ordinal, strength, false)
                 EngineState.tapCount.value++
             }
         }
@@ -361,6 +366,8 @@ class HapticService : Service() {
                     if (!emit) continue
                     val strength = if (mode == Mode.HYBRID) o.strength * 0.7f else o.strength
                     engine.play(Tap(o.band, strength, delay))
+                    EngineState.pulse.value =
+                        Pulse(System.nanoTime(), o.band.ordinal, strength, false)
                     EngineState.tapCount.value++
                 }
             }
@@ -376,6 +383,8 @@ class HapticService : Service() {
                 if (deltaMs >= 0f && deltaMs <= LOOKAHEAD_MS) {
                     lastScheduledBeatMs = next
                     engine.play(Tap(Band.LOW, beatStrength, deltaMs.roundToInt(), accent = true))
+                    EngineState.pulse.value =
+                        Pulse(System.nanoTime(), Band.LOW.ordinal, beatStrength, true)
                     EngineState.tapCount.value++
                 }
             }

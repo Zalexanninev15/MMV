@@ -258,6 +258,8 @@ private fun PlayTab(onPreview: () -> Unit) {
     val mode by EngineState.mode.collectAsState()
     val source by EngineState.source.collectAsState()
 
+    PixelBand(title = if (bpm > 0f) "${bpm.roundToInt()} BPM" else "Magic Music V")
+
     // Outlined rather than filled: this is a readout, not a surface you act on, and an
     // outline keeps it from competing with the tonal cards below.
     OutlinedCard(Modifier.fillMaxWidth()) {
@@ -670,6 +672,8 @@ private fun SetupTab(
     val bypassScaling by EngineState.bypassSystemScaling.collectAsState()
     val theme by EngineState.theme.collectAsState()
     val dynamicColor by EngineState.dynamicColor.collectAsState()
+    val character by EngineState.character.collectAsState()
+    val instrument by EngineState.instrument.collectAsState()
     val resolved = resolveBackend(backendChoice, autoBackend, oplusAvailable)
 
     Section("Haptic engine", OemSupport.deviceLabel) {
@@ -769,6 +773,18 @@ private fun SetupTab(
             options = listOf("System", "Dark", "Light"),
             selectedIndex = AppTheme.entries.indexOf(theme),
         ) { EngineState.theme.value = AppTheme.entries[it] }
+        Supporting("Band character")
+        Choice(
+            options = PixelCharacter.entries.map { it.title },
+            selectedIndex = PixelCharacter.entries.indexOf(character),
+        ) { EngineState.character.value = PixelCharacter.entries[it] }
+
+        Supporting("Instrument")
+        Choice(
+            options = PixelInstrument.entries.map { it.title },
+            selectedIndex = PixelInstrument.entries.indexOf(instrument),
+        ) { EngineState.instrument.value = PixelInstrument.entries[it] }
+
         SwitchRow(
             "Material You colours",
             if (dynamicColor) "Palette from your wallpaper" else "The app's own palette",
