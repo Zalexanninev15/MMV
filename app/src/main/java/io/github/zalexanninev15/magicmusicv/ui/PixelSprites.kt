@@ -210,6 +210,20 @@ enum class PixelInstrument(
     ),
 }
 
+/**
+ * Where the band takes its colours from.
+ *
+ * VIDEO is the fixed palette sampled out of the reference clip, so the band looks the same
+ * on every device regardless of wallpaper or light/dark. THEME derives from the Material You
+ * scheme and follows the rest of the app.
+ */
+enum class BandPalette(val title: String) { VIDEO("Video"), THEME("Theme") }
+
+/** Sampled from the reference video: background gradient, and the colour of a lit cell. */
+val VIDEO_DEEP = Color(0xFF27164C)
+val VIDEO_SHALLOW = Color(0xFF4B4162)
+val VIDEO_LIT = Color(0xFFF0EEF4)
+
 const val SPRITE_SIZE = 16
 
 fun spritePixel(rows: List<String>, x: Int, y: Int): Char {

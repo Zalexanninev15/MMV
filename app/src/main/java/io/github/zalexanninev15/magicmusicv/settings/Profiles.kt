@@ -5,6 +5,7 @@ import io.github.zalexanninev15.magicmusicv.AppTheme
 import io.github.zalexanninev15.magicmusicv.Mode
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.haptics.BackendChoice
+import io.github.zalexanninev15.magicmusicv.ui.BandPalette
 import io.github.zalexanninev15.magicmusicv.ui.PixelCharacter
 import io.github.zalexanninev15.magicmusicv.ui.PixelInstrument
 import io.github.zalexanninev15.magicmusicv.haptics.MagicFeedback
@@ -29,6 +30,8 @@ data class SettingsSnapshot(
     /** MagicFeedback preset id, or "" for off. */
     val magicPreset: String,
     val dynamicColor: Boolean,
+    val showBand: Boolean,
+    val bandPalette: BandPalette,
     val character: PixelCharacter,
     val instrument: PixelInstrument,
 )
@@ -67,6 +70,8 @@ object SettingsCodec {
         put("theme", s.theme.name)
         put("magicPreset", s.magicPreset)
         put("dynamicColor", s.dynamicColor)
+        put("showBand", s.showBand)
+        put("bandPalette", s.bandPalette.name)
         put("character", s.character.name)
         put("instrument", s.instrument.name)
     }.toString(2)
@@ -98,6 +103,8 @@ object SettingsCodec {
             theme = enumOr(o.optString("theme"), AppTheme.entries, defaults.theme),
             // Unknown preset ids degrade to off rather than to an arbitrary preset.
             dynamicColor = o.optBoolean("dynamicColor", defaults.dynamicColor),
+            showBand = o.optBoolean("showBand", defaults.showBand),
+            bandPalette = enumOr(o.optString("bandPalette"), BandPalette.entries, defaults.bandPalette),
             character = enumOr(o.optString("character"), PixelCharacter.entries, defaults.character),
             instrument = enumOr(o.optString("instrument"), PixelInstrument.entries, defaults.instrument),
             magicPreset = o.optString("magicPreset", defaults.magicPreset)

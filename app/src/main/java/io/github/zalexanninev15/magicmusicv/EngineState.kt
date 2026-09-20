@@ -3,6 +3,7 @@ package io.github.zalexanninev15.magicmusicv
 import android.content.Context
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.haptics.BackendChoice
+import io.github.zalexanninev15.magicmusicv.ui.BandPalette
 import io.github.zalexanninev15.magicmusicv.ui.PixelCharacter
 import io.github.zalexanninev15.magicmusicv.ui.PixelInstrument
 import io.github.zalexanninev15.magicmusicv.settings.SettingsSnapshot
@@ -66,6 +67,8 @@ object EngineState {
         backendChoice = BackendChoice.AUTO,
         theme = AppTheme.SYSTEM,
         dynamicColor = true,
+        showBand = true,
+        bandPalette = BandPalette.VIDEO,
         character = PixelCharacter.ROADIE,
         instrument = PixelInstrument.GUITAR,
         magicPreset = "",
@@ -103,6 +106,12 @@ object EngineState {
     /** Material You colour from the wallpaper; off falls back to the app's own palette. */
     val dynamicColor = MutableStateFlow(DEFAULTS.dynamicColor)
 
+    /** The animated pixel band on the Play tab. */
+    val showBand = MutableStateFlow(DEFAULTS.showBand)
+
+    /** Fixed video palette, or the app's Material You scheme. */
+    val bandPalette = MutableStateFlow(DEFAULTS.bandPalette)
+
     val character = MutableStateFlow(DEFAULTS.character)
     val instrument = MutableStateFlow(DEFAULTS.instrument)
 
@@ -128,6 +137,8 @@ object EngineState {
         backendChoice = backendChoice.value,
         theme = theme.value,
         dynamicColor = dynamicColor.value,
+        showBand = showBand.value,
+        bandPalette = bandPalette.value,
         character = character.value,
         instrument = instrument.value,
         magicPreset = magicPreset.value,
@@ -149,6 +160,8 @@ object EngineState {
         backendChoice.value = s.backendChoice
         theme.value = s.theme
         dynamicColor.value = s.dynamicColor
+        showBand.value = s.showBand
+        bandPalette.value = s.bandPalette
         character.value = s.character
         instrument.value = s.instrument
         magicPreset.value = s.magicPreset
@@ -176,6 +189,8 @@ object EngineState {
         theme.value = enumOr(p.getString("theme", null), AppTheme.entries, DEFAULTS.theme)
         magicPreset.value = p.getString("magicPreset", DEFAULTS.magicPreset) ?: DEFAULTS.magicPreset
         dynamicColor.value = p.getBoolean("dynamicColor", DEFAULTS.dynamicColor)
+        showBand.value = p.getBoolean("showBand", DEFAULTS.showBand)
+        bandPalette.value = enumOr(p.getString("bandPalette", null), BandPalette.entries, DEFAULTS.bandPalette)
         character.value = enumOr(p.getString("character", null), PixelCharacter.entries, DEFAULTS.character)
         instrument.value = enumOr(p.getString("instrument", null), PixelInstrument.entries, DEFAULTS.instrument)
     }
@@ -199,6 +214,8 @@ object EngineState {
             putString("theme", s.theme.name)
             putString("magicPreset", s.magicPreset)
             putBoolean("dynamicColor", s.dynamicColor)
+            putBoolean("showBand", s.showBand)
+            putString("bandPalette", s.bandPalette.name)
             putString("character", s.character.name)
             putString("instrument", s.instrument.name)
         }.apply()

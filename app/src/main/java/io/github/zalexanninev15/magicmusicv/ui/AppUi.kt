@@ -257,8 +257,13 @@ private fun PlayTab(onPreview: () -> Unit) {
     val taps by EngineState.tapCount.collectAsState()
     val mode by EngineState.mode.collectAsState()
     val source by EngineState.source.collectAsState()
+    val showBand by EngineState.showBand.collectAsState()
 
-    PixelBand(title = if (bpm > 0f) "${bpm.roundToInt()} BPM" else "Magic Music V")
+    // BPM lives in exactly one place. With the band on it is the band's title; with the band
+    // off it moves into this card, so the reading is never duplicated and never missing.
+    if (showBand) {
+        PixelBand(title = if (bpm > 0f) "${bpm.roundToInt()} BPM" else "Magic Music V")
+    }
 
     // Outlined rather than filled: this is a readout, not a surface you act on, and an
     // outline keeps it from competing with the tonal cards below.
@@ -272,16 +277,20 @@ private fun PlayTab(onPreview: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom,
             ) {
-                Text(
-                    if (bpm > 0f) "${bpm.roundToInt()}" else "--",
-                    style = MaterialTheme.typography.displaySmall,
-                )
-                Text("BPM", style = MaterialTheme.typography.labelLarge)
-                Text(
-                    "$taps taps",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (showBand) {
+                    Text("$taps taps", style = MaterialTheme.typography.labelLarge)
+                } else {
+                    Text(
+                        if (bpm > 0f) "${bpm.roundToInt()}" else "--",
+                        style = MaterialTheme.typography.displaySmall,
+                    )
+                    Text("BPM", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        "$taps taps",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             LinearProgressIndicator(
                 progress = { level },
@@ -674,6 +683,8 @@ private fun SetupTab(
     val dynamicColor by EngineState.dynamicColor.collectAsState()
     val character by EngineState.character.collectAsState()
     val instrument by EngineState.instrument.collectAsState()
+    val showBand by EngineState.showBand.collectAsState()
+    val bandPalette by EngineState.bandPalette.collectAsState()
     val resolved = resolveBackend(backendChoice, autoBackend, oplusAvailable)
 
     Section("Haptic engine", OemSupport.deviceLabel) {
@@ -773,17 +784,33 @@ private fun SetupTab(
             options = listOf("System", "Dark", "Light"),
             selectedIndex = AppTheme.entries.indexOf(theme),
         ) { EngineState.theme.value = AppTheme.entries[it] }
-        Supporting("Band character")
-        Choice(
-            options = PixelCharacter.entries.map { it.title },
-            selectedIndex = PixelCharacter.entries.indexOf(character),
-        ) { EngineState.character.value = PixelCharacter.entries[it] }
+        SwitchRow(
+            "Beat visualiser",
+            if (showBand) "Animated band on the Play tab"
+            else "Off — BPM is shown in the meters card instead",
+            showBand,
+        ) { EngineState.showBand.value = it }
 
-        Supporting("Instrument")
-        Choice(
-            options = PixelInstrument.entries.map { it.title },
-            selectedIndex = PixelInstrument.entries.indexOf(instrument),
-        ) { EngineState.instrument.value = PixelInstrument.entries[it] }
+        // Character and instrument only mean anything while the band is drawn.
+        if (showBand) {
+            Supporting("Band colours")
+            Choice(
+                options = BandPalette.entries.map { it.title },
+                selectedIndex = BandPalette.entries.indexOf(bandPalette),
+            ) { EngineState.bandPalette.value = BandPalette.entries[it] }
+
+            Supporting("Band character")
+            Choice(
+                options = PixelCharacter.entries.map { it.title },
+                selectedIndex = PixelCharacter.entries.indexOf(character),
+            ) { EngineState.character.value = PixelCharacter.entries[it] }
+
+            Supporting("Instrument")
+            Choice(
+                options = PixelInstrument.entries.map { it.title },
+                selectedIndex = PixelInstrument.entries.indexOf(instrument),
+            ) { EngineState.instrument.value = PixelInstrument.entries[it] }
+        }
 
         SwitchRow(
             "Material You colours",

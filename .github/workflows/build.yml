@@ -99,3 +99,22 @@ jobs:
         with:
           files: out/*.apk
           generate_release_notes: true
+
+      # Artifact downloads go through a short-lived Azure SAS link that browsers and
+      # download managers regularly mangle. A release asset is an ordinary URL with none of
+      # that, so every push to main also refreshes one rolling pre-release. The tag is
+      # deliberately not of the form v<number>: the in-app updater only considers numeric
+      # v-tags, so this can never be offered as an update.
+      - name: Refresh rolling build
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ci-latest
+          name: Latest CI build
+          body: |
+            Rolling build from the newest commit on main. Overwritten on every push.
+            Not a release — use the tagged releases for anything you intend to keep.
+
+            Commit ${{ github.sha }}
+          prerelease: true
+          files: out/*.apk

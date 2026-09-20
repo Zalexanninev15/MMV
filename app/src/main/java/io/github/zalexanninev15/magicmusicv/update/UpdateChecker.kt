@@ -20,7 +20,9 @@ object UpdateChecker {
     const val MASTODON_URL = "https://mastodon.ml/@voltmor"
 
     private const val LATEST = "https://api.github.com/repos/Zalexanninev15/MMV/releases/latest"
-    private const val ALL = "https://api.github.com/repos/Zalexanninev15/MMV/releases?per_page=1"
+    // More than one, because the newest entry may be the rolling CI pre-release, which is
+    // never a candidate. Filtering happens below.
+    private const val ALL = "https://api.github.com/repos/Zalexanninev15/MMV/releases?per_page=20"
 
     data class Result(
         val tag: String? = null,
@@ -38,11 +40,16 @@ object UpdateChecker {
         val release = runCatching {
             if (body.trimStart().startsWith("[")) {
                 val arr = JSONArray(body)
-                if (arr.length() == 0) null else arr.getJSONObject(0)
+                // Only tags of the form v<number> are real releases. The CI build publishes
+                // a rolling pre-release under a non-numeric tag, and taking element 0 blindly
+                // would offer that as an update on every check, forever.
+                (0 until arr.length())
+                    .map { arr.getJSONObject(it) }
+                    .firstOrNull { isReleaseTag(it.optString("tag_name")) }
             } else {
-                JSONObject(body)
+                JSONObject(body).takeIf { isReleaseTag(it.optString("tag_name")) }
             }
-        }.getOrNull() ?: return@withContext Result(error = "Unexpected response from GitHub")
+        }.getOrNull() ?: return@withContext Result(error = "No published releases yet")
 
         val tag = release.optString("tag_name").takeIf { it.isNotBlank() }
             ?: return@withContext Result(error = "No releases published yet")
@@ -50,6 +57,10 @@ object UpdateChecker {
 
         Result(tag = tag, url = url, newer = isNewer(tag, currentVersion))
     }
+
+    /** A real release tag: "v" followed by a digit, e.g. v0.6 — not "ci-latest". */
+    private fun isReleaseTag(tag: String?): Boolean =
+        tag != null && tag.length >= 2 && tag[0] == 'v' && tag[1].isDigit()
 
     private fun fetch(url: String): String? = runCatching {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
