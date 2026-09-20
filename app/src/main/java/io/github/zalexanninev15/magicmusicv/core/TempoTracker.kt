@@ -2,6 +2,7 @@ package io.github.zalexanninev15.magicmusicv.core
 
 import kotlin.math.abs
 import kotlin.math.ln
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -78,6 +79,15 @@ class TempoTracker(private val hopSeconds: Float) {
         var mean = 0f
         for (v in e) mean += v
         mean /= n
+        // A near-empty envelope makes the score/average ratio below meaningless: dividing a
+        // tiny peak by a tinier average produced confidences of 10+ during silence, which
+        // read as a rock-solid lock on nothing.
+        if (mean < 1e-4f) {
+            confidence = 0f
+            periodFrames = 0
+            anchorFrame = -1
+            return
+        }
         for (i in 0 until n) e[i] = (e[i] - mean).coerceAtLeast(0f)
 
         var bestLag = 0
@@ -109,7 +119,7 @@ class TempoTracker(private val hopSeconds: Float) {
 
         if (bestLag == 0 || scoreCount == 0) return
         val avg = scoreSum / scoreCount
-        confidence = if (avg > 0f) bestScore / avg else 0f
+        confidence = if (avg > 0f) min(bestScore / avg, 8f) else 0f
         periodFrames = bestLag
         bpm = 60f / (bestLag * hopSeconds)
 

@@ -68,7 +68,7 @@ object EngineState {
         theme = AppTheme.SYSTEM,
         dynamicColor = true,
         showBand = true,
-        bandPalette = BandPalette.VIDEO,
+        bandPalette = BandPalette.STANDARD,
         character = PixelCharacter.ROADIE,
         instrument = PixelInstrument.GUITAR,
         magicPreset = "",

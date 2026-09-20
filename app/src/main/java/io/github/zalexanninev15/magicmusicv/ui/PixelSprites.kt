@@ -21,18 +21,25 @@ fun spriteColor(
     skin: Color,
     jacket: Color,
     jacketShade: Color,
+    eye: Color = Color(0xFF14100F),
 ): Color? = when (ch) {
+    'E' -> eye
     '1' -> hair
     '2' -> skin
     '3' -> jacket
     '4' -> jacketShade
     '5' -> Color(0xFF14100F)
+    '9' -> Color(0xFFFFD75E)
     '6' -> Color(0xFF2B2B33)   // instrument body
     '7' -> Color(0xFFC08A4A)   // fretboard / wood
     '8' -> Color(0xFFD9D9E3)   // metal, strings, keys
     '9' -> Color(0xFFFFD75E)
     else -> null
 }
+
+/** Rows 0..7 are the head, 8..12 the torso, 13..15 the legs. Used for per-part animation. */
+const val HEAD_LAST_ROW = 7
+const val LEG_FIRST_ROW = 13
 
 enum class PixelCharacter(
     val title: String,
@@ -41,6 +48,9 @@ enum class PixelCharacter(
     val jacket: Color,
     val jacketShade: Color,
     val rows: List<String>,
+    /** Eye colour, and what to paint over the eyes mid-blink. */
+    val eye: Color = Color(0xFF14100F),
+    val eyeClosed: Color = skin,
 ) {
     ROADIE(
         "Roadie",
@@ -91,6 +101,33 @@ enum class PixelCharacter(
             "...444..444.....",
             "...555..555.....",
         ),
+    ),
+    BATMETAL(
+        "Batmetal",
+        hair = Color(0xFF1B1B22),
+        skin = Color(0xFFD9A07A),
+        jacket = Color(0xFF2A2A33),
+        jacketShade = Color(0xFF16161C),
+        rows = listOf(
+            "................",
+            "...1........1...",
+            "...11......11...",
+            "...1111111111...",
+            "...1111111111...",
+            "...1EE1..1EE1...",
+            "...1222222221...",
+            "....12222221....",
+            "....333333......",
+            "...33333333.....",
+            "..3333333333....",
+            "..3399999933....",
+            "...33333333.....",
+            "...444..444.....",
+            "...444..444.....",
+            "...555..555.....",
+        ),
+        eye = Color(0xFFE6E6F0),
+        eyeClosed = Color(0xFF1B1B22),
     ),
     METALHEAD(
         "Metalhead",
@@ -217,12 +254,21 @@ enum class PixelInstrument(
  * on every device regardless of wallpaper or light/dark. THEME derives from the Material You
  * scheme and follows the rest of the app.
  */
-enum class BandPalette(val title: String) { VIDEO("Video"), THEME("Theme") }
+enum class BandPalette(val title: String) {
+    /** The palette sampled from the reference clip. Identical on every device. */
+    STANDARD("Standard"),
+
+    /** Derived from the Material You scheme, so the band follows the rest of the app. */
+    THEME("Theme"),
+
+    /** The first implementation: theme colours, grid always drawn, narrow fast waves. */
+    CLASSIC("Classic"),
+}
 
 /** Sampled from the reference video: background gradient, and the colour of a lit cell. */
-val VIDEO_DEEP = Color(0xFF27164C)
-val VIDEO_SHALLOW = Color(0xFF4B4162)
-val VIDEO_LIT = Color(0xFFF0EEF4)
+val STANDARD_DEEP = Color(0xFF27164C)
+val STANDARD_SHALLOW = Color(0xFF4B4162)
+val STANDARD_LIT = Color(0xFFF0EEF4)
 
 const val SPRITE_SIZE = 16
 

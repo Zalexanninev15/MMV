@@ -37,6 +37,7 @@ import io.github.zalexanninev15.magicmusicv.library.CachedTrack
 import io.github.zalexanninev15.magicmusicv.library.LibraryState
 import io.github.zalexanninev15.magicmusicv.library.LibraryStore
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 class HapticService : Service() {
 
@@ -168,6 +169,7 @@ class HapticService : Service() {
     }
 
     private var lastEffects = intArrayOf(-1, -1, -1)
+    private var silentHops = 0
 
     /**
      * Pulls the tunable settings across on every hop/tick, live and cached alike.
@@ -205,6 +207,39 @@ class HapticService : Service() {
     /** Runs on the audio thread. Keep it allocation-light and never block it. */
     private fun onHop(hop: FloatArray) {
         pullLiveSettings()
+
+        /*
+         * Silence gate.
+         *
+         * The per-band energy gate in the thresholder only guards onsets. Beat and Hybrid
+         * fire from tempo.nextBeat(), which knows nothing about whether audio is still
+         * arriving — so when playback stopped the predicted grid kept firing forever, and
+         * the tracker's confidence ran away because its envelope mean collapsed towards
+         * zero. That is the endless bursts against complete silence.
+         *
+         * Measured on the raw samples rather than on spectral energy: it is the cheapest
+         * honest answer to "is anything actually playing".
+         */
+        var sumSq = 0f
+        for (v in hop) sumSq += v * v
+        val rms = sqrt(sumSq / hop.size)
+        if (rms < SILENCE_RMS) silentHops++ else silentHops = 0
+        val silenceHopsNeeded = (SILENCE_HOLD_MS / (detector.hopSeconds * 1000f)).toInt()
+
+        if (silentHops > silenceHopsNeeded) {
+            // Reset once on entering silence, then stay quiet until audio returns.
+            if (silentHops == silenceHopsNeeded + 1) {
+                tempo.reset()
+                engine.cancel()
+                lastScheduledBeat = Long.MIN_VALUE
+                EngineState.bpm.value = 0f
+                EngineState.confidence.value = 0f
+            }
+            EngineState.level.value = 0f
+            detector.process(hop)
+            return
+        }
+
         val onsets = detector.process(hop)
         tempo.push(detector.lastFluxSum)
 
@@ -480,6 +515,12 @@ class HapticService : Service() {
         private const val CHANNEL_ID = "magicmusicv.engine"
         private const val NOTIF_ID = 1001
         private const val LOOKAHEAD_MS = 260f
+
+        /** About -56 dBFS. Below this the input is silence, not quiet music. */
+        private const val SILENCE_RMS = 0.0015f
+
+        /** How long it must stay quiet before taps stop, so gaps between notes survive. */
+        private const val SILENCE_HOLD_MS = 400f
         private const val POLL_MS = 30L
 
         fun start(context: Context, resultCode: Int, resultData: Intent?) {
