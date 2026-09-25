@@ -149,6 +149,28 @@ object MagicFeedback {
 
     fun byId(id: String?): MagicPreset? = presets.firstOrNull { it.id == id }
 
+    /*
+     * Selection is stored as comma-separated ids. Keeping it a String means the settings
+     * and profile formats did not change shape when this went from one preset to several,
+     * and an old profile holding a single id — "impact" — is still a valid selection.
+     */
+
+    /** Presets in [csv], in canonical order, ignoring unknown ids. */
+    fun parse(csv: String): List<MagicPreset> {
+        val ids = csv.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        return presets.filter { it.id in ids }
+    }
+
+    /** [csv] with [id] added if absent, removed if present. */
+    fun toggle(csv: String, id: String): String {
+        val current = parse(csv).map { it.id }.toMutableSet()
+        if (!current.add(id)) current.remove(id)
+        return presets.filter { it.id in current }.joinToString(",") { it.id }
+    }
+
+    /** Drops unknown ids, e.g. from a profile written by a newer or older build. */
+    fun sanitise(csv: String): String = parse(csv).joinToString(",") { it.id }
+
     /**
      * Resolves a preset to concrete effect ids for [low, mid, high], or null if the vendor
      * engine is not up.

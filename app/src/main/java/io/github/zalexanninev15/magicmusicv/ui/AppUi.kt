@@ -30,6 +30,11 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FabPosition
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -187,6 +192,9 @@ fun MagicMusicScreen(
                 }
             }
         },
+        // Centred, sitting just above the navigation bar: the primary action gets the most
+        // reachable spot on the screen for either thumb.
+        floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { if (running) onStop() else onStart() },
@@ -411,11 +419,7 @@ private fun TuneTab(
         EffectLab(tapCandidates, onPreviewEffect)
 
         if (MagicFeedback.available) {
-            var showMagic by remember { mutableStateOf(magicPreset.isNotEmpty()) }
-            OutlinedButton(onClick = { showMagic = !showMagic }) {
-                Text(if (showMagic) "Hide advanced textures" else "Advanced textures")
-            }
-            if (showMagic) MagicSection(magicPreset, onPreviewMagic, onPreviewMagicBand)
+            MagicSection(magicPreset, onPreviewMagic, onPreviewMagicBand)
         }
     }
 }
@@ -503,53 +507,104 @@ private fun MagicSection(
     onPreviewMagic: (String) -> Unit,
     onPreviewMagicBand: (String, Int) -> Unit,
 ) {
-    Section("Advanced textures", "Experimental, off by default") {
-        Supporting(
-            "These replace the backend's own voicing with a single textured effect per band. " +
-                "Several are rejected by the ROM or too long to follow a beat."
-        )
-        OutlinedButton(onClick = { EngineState.magicPreset.value = "" }) { Text("Off") }
-        MagicFeedback.presets.forEach { preset ->
-            val selected = preset.id == magicPreset
-            Card(
+    val active = MagicFeedback.parse(magicPreset)
+    var expanded by remember { mutableStateOf(active.isNotEmpty()) }
+
+    // The header states what is on in words, so the section never needs opening just to find
+    // out. It replaces the old "Off" button, which was always visible and said nothing about
+    // whether anything was actually selected.
+    ListItem(
+        headlineContent = { Text("Advanced textures") },
+        supportingContent = {
+            Text(
+                when (active.size) {
+                    0 -> "Off - experimental"
+                    1 -> "On: ${active[0].title}"
+                    else -> "On: ${active.size} textures, rotating per hit"
+                }
+            )
+        },
+        trailingContent = {
+            Switch(
+                checked = active.isNotEmpty(),
+                onCheckedChange = { on ->
+                    // Turning on with nothing chosen picks the first preset, so the switch
+                    // always does something visible instead of silently staying off.
+                    EngineState.magicPreset.value =
+                        if (on) MagicFeedback.presets.first().id else ""
+                    expanded = on || expanded
+                },
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.clickable { expanded = !expanded },
+    )
+
+    if (!expanded) return
+
+    Supporting(
+        "Pick one or several. With several, each band rotates through them hit by hit. " +
+            "They replace the backend's voicing, and several effects are longer than a beat."
+    )
+
+    MagicFeedback.presets.forEach { preset ->
+        val on = active.any { it.id == preset.id }
+        // Selected presets get a filled tonal card; unselected an outline. The state is
+        // readable at a glance instead of from a text colour.
+        val cardColors = if (on) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        } else {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        }
+        Card(
+            colors = cardColors,
+            border = if (on) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable { EngineState.magicPreset.value = preset.id }
+                    .clickable {
+                        EngineState.magicPreset.value = MagicFeedback.toggle(magicPreset, preset.id)
+                    }
+                    .padding(start = 4.dp, end = 4.dp, top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(
-                    Modifier.padding(ScreenMargin),
-                    verticalArrangement = Arrangement.spacedBy(ItemGap),
-                ) {
+                Checkbox(
+                    checked = on,
+                    onCheckedChange = {
+                        EngineState.magicPreset.value = MagicFeedback.toggle(magicPreset, preset.id)
+                    },
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(preset.title, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        preset.blurb,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                FilledTonalIconButton(onClick = { onPreviewMagic(preset.id) }) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = "Try ${preset.title}")
+                }
+            }
+            Column(
+                Modifier.padding(start = 16.dp, end = 12.dp, bottom = 8.dp),
+            ) {
+                MagicFeedback.explain(preset).forEachIndexed { band, label ->
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            preset.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
+                            "${listOf("low", "mid", "high")[band]}  $label",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(1f),
                         )
-                        IconButton(onClick = { onPreviewMagic(preset.id) }) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "Try ${preset.title}")
-                        }
-                    }
-                    Supporting(preset.blurb)
-                    MagicFeedback.explain(preset).forEachIndexed { band, label ->
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "${listOf("low", "mid", "high")[band]}  $label",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                            OutlinedButton(onClick = { onPreviewMagicBand(preset.id, band) }) {
-                                Text("Test")
-                            }
+                        OutlinedButton(onClick = { onPreviewMagicBand(preset.id, band) }) {
+                            Text("Test")
                         }
                     }
                 }

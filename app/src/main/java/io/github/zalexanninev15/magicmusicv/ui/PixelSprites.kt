@@ -254,14 +254,18 @@ enum class PixelInstrument(
  * on every device regardless of wallpaper or light/dark. THEME derives from the Material You
  * scheme and follows the rest of the app.
  */
+/**
+ * How the band draws its waves. Both use the palette sampled from the reference clip.
+ *
+ * A theme-derived option existed and was removed: Material You schemes are low-contrast by
+ * design, and lit cells drawn from them barely separated from the background on any
+ * wallpaper tried. The sampled palette reads clearly everywhere.
+ */
 enum class BandPalette(val title: String) {
-    /** The palette sampled from the reference clip. Identical on every device. */
+    /** Grid appears only inside the light; wide waves that widen as they travel. */
     STANDARD("Standard"),
 
-    /** Derived from the Material You scheme, so the band follows the rest of the app. */
-    THEME("Theme"),
-
-    /** The first implementation: theme colours, grid always drawn, narrow fast waves. */
+    /** The first implementation: grid always drawn, narrow fast waves. */
     CLASSIC("Classic"),
 }
 

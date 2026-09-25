@@ -107,8 +107,8 @@ object SettingsCodec {
             bandPalette = enumOr(o.optString("bandPalette"), BandPalette.entries, defaults.bandPalette),
             character = enumOr(o.optString("character"), PixelCharacter.entries, defaults.character),
             instrument = enumOr(o.optString("instrument"), PixelInstrument.entries, defaults.instrument),
-            magicPreset = o.optString("magicPreset", defaults.magicPreset)
-                .takeIf { it.isEmpty() || MagicFeedback.byId(it) != null } ?: "",
+            // Unknown ids are dropped rather than failing the whole import.
+            magicPreset = MagicFeedback.sanitise(o.optString("magicPreset", defaults.magicPreset)),
         )
     }
 

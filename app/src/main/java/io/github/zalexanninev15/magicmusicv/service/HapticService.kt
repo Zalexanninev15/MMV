@@ -32,6 +32,7 @@ import io.github.zalexanninev15.magicmusicv.core.OnsetDetector
 import io.github.zalexanninev15.magicmusicv.core.OnsetThresholder
 import io.github.zalexanninev15.magicmusicv.core.TempoTracker
 import io.github.zalexanninev15.magicmusicv.haptics.HapticEngine
+import io.github.zalexanninev15.magicmusicv.haptics.MagicFeedback
 import io.github.zalexanninev15.magicmusicv.haptics.Tap
 import io.github.zalexanninev15.magicmusicv.library.CachedTrack
 import io.github.zalexanninev15.magicmusicv.library.LibraryState
@@ -159,7 +160,7 @@ class HapticService : Service() {
             EngineState.effectHigh.value,
         )
         engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
-        engine.magicPresetId = EngineState.magicPreset.value.takeIf { it.isNotEmpty() }
+        engine.magicPresets = MagicFeedback.parse(EngineState.magicPreset.value)
         detector.sensitivity = EngineState.sensitivity.value
         detector.bandEnabled = booleanArrayOf(
             EngineState.bandLow.value,
@@ -170,6 +171,7 @@ class HapticService : Service() {
 
     private var lastEffects = intArrayOf(-1, -1, -1)
     private var silentHops = 0
+    private var lastMagicCsv: String? = null
 
     /**
      * Pulls the tunable settings across on every hop/tick, live and cached alike.
@@ -182,7 +184,13 @@ class HapticService : Service() {
     private fun pullLiveSettings() {
         engine.intensity = EngineState.intensity.value
         engine.bypassSystemScaling = EngineState.bypassSystemScaling.value
-        engine.magicPresetId = EngineState.magicPreset.value.takeIf { it.isNotEmpty() }
+        // Re-parsed only when the selection changes: this runs on the audio thread 188 times a
+        // second, and splitting a string every hop is pure allocation churn.
+        val csv = EngineState.magicPreset.value
+        if (csv != lastMagicCsv) {
+            lastMagicCsv = csv
+            engine.magicPresets = MagicFeedback.parse(csv)
+        }
 
         detector.sensitivity = EngineState.sensitivity.value
         val be = detector.bandEnabled

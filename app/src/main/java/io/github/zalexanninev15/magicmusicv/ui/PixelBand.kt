@@ -96,24 +96,12 @@ fun PixelBand(
         notes.removeAll { ageMs(nowNanos, it.startNanos) > NOTE_LIFE_MS }
     }
 
-    val scheme = MaterialTheme.colorScheme
+    // One palette for both styles — the one sampled from the reference. Theme-derived
+    // colours were too low-contrast to read on most wallpapers.
     val classic = palette == BandPalette.CLASSIC
-    val deep: Color
-    val shallow: Color
-    val litColor: Color
-    when (palette) {
-        BandPalette.STANDARD -> {
-            deep = STANDARD_DEEP
-            shallow = STANDARD_SHALLOW
-            litColor = STANDARD_LIT
-        }
-
-        else -> {
-            deep = lerp(scheme.surfaceContainerLowest, scheme.primary, 0.30f)
-            shallow = lerp(scheme.surfaceContainerLowest, scheme.primary, 0.48f)
-            litColor = lerp(scheme.primaryContainer, Color.White, 0.55f)
-        }
-    }
+    val deep = STANDARD_DEEP
+    val shallow = STANDARD_SHALLOW
+    val litColor = STANDARD_LIT
 
     Box(
         modifier

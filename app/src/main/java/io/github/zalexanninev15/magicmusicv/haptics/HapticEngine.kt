@@ -133,14 +133,18 @@ class HapticEngine(context: Context) {
     var oplusEffects: IntArray = intArrayOf(2, 1, 0)
 
     /**
-     * Active MagicFeedback preset id, or null for the plain graded taps.
+     * Active MagicFeedback presets, empty for the plain graded taps.
      *
-     * When set it overrides [oplusEffects] and brings its own per-band rate limits: the
-     * textured effects are several times longer than a short tap, and at onset rate they
-     * overlap into exactly the continuous buzz this app exists to avoid.
+     * With several selected, each band rotates through them tap by tap, so a kick lands as
+     * a strike, then a detent, then a burst. Every preset still brings its own rate limit:
+     * the textured effects are several times longer than a short tap, and at onset rate
+     * they overlap into exactly the continuous buzz this app exists to avoid.
      */
     @Volatile
-    var magicPresetId: String? = null
+    var magicPresets: List<MagicPreset> = emptyList()
+
+    /** Next preset index per band. Audio thread only. */
+    private val presetCursor = intArrayOf(0, 0, 0)
 
     /** Detach OPLUS effects from the system vibration-intensity slider. */
     @Volatile
@@ -211,12 +215,7 @@ class HapticEngine(context: Context) {
 
     private fun playOplus(taps: List<Tap>) {
         val mmv = backend == Backend.OPLUS_MMV
-        val preset = MagicFeedback.byId(magicPresetId)
-        val magicIds = preset?.let { MagicFeedback.resolve(it) }
-        val gaps = when {
-            preset != null -> intArrayOf(preset.gapLow, preset.gapMid, preset.gapHigh)
-            else -> null
-        }
+        val selected = magicPresets
         val now = System.currentTimeMillis()
 
         var cumulative = 0
@@ -224,12 +223,20 @@ class HapticEngine(context: Context) {
             cumulative += t.delayMs.coerceIn(0, 5_000)
             val band = t.band.ordinal
 
+            // Pick this tap's preset per band. The cursor only advances when a tap actually
+            // fires, so a rate-limited drop does not skip a texture in the rotation.
+            val preset = if (selected.isEmpty()) null
+            else selected[presetCursor[band] % selected.size]
+            val magicIds = preset?.let { MagicFeedback.resolve(it) }
+            val gaps = preset?.let { intArrayOf(it.gapLow, it.gapMid, it.gapHigh) }
+
             if (gaps != null) {
                 // Gate on the moment the tap will actually fire, not on now — a scheduled
                 // beat 200 ms out must not be dropped because of a tap that just played.
                 val at = now + cumulative
                 if (at - lastFireMs[band] < gaps[band]) continue
                 lastFireMs[band] = at
+                presetCursor[band]++
             }
 
             val level = scaleFor(t.band, t.strength)
