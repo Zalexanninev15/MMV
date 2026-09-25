@@ -10,7 +10,7 @@ import android.media.projection.MediaProjection
 import android.os.Process
 import android.util.Log
 
-enum class SourceKind { PLAYBACK_CAPTURE, MICROPHONE, LOCAL_LIBRARY }
+enum class SourceKind { PLAYBACK_CAPTURE, MICROPHONE, LOCAL_LIBRARY, NAMIDA }
 
 /**
  * Pulls mono float samples off either the system playback mix or the microphone and
@@ -91,8 +91,8 @@ class AudioSourceReader(
                 // Local library playback never reaches this reader: HapticService drives it
                 // from a cached flux track and its own MediaPlayer instead of AudioRecord.
                 // The branch exists only so this remains an exhaustive `when`.
-                SourceKind.LOCAL_LIBRARY -> {
-                    onError("LOCAL_LIBRARY does not use AudioSourceReader")
+                SourceKind.LOCAL_LIBRARY, SourceKind.NAMIDA -> {
+                    onError("$kind does not use AudioSourceReader")
                     return false
                 }
             }

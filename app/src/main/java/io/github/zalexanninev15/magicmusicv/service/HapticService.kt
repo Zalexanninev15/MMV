@@ -24,6 +24,7 @@ import io.github.zalexanninev15.magicmusicv.Mode
 import io.github.zalexanninev15.magicmusicv.Pulse
 import io.github.zalexanninev15.magicmusicv.R
 import io.github.zalexanninev15.magicmusicv.audio.AudioSourceReader
+import io.github.zalexanninev15.magicmusicv.bridge.MediaSessionLink
 import io.github.zalexanninev15.magicmusicv.audio.SourceKind
 import io.github.zalexanninev15.magicmusicv.core.Band
 import io.github.zalexanninev15.magicmusicv.core.CachedBeatGrid
@@ -96,7 +97,8 @@ class HapticService : Service() {
         val fgsType = when (source) {
             SourceKind.PLAYBACK_CAPTURE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             SourceKind.MICROPHONE -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            SourceKind.LOCAL_LIBRARY -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            SourceKind.LOCAL_LIBRARY, SourceKind.NAMIDA ->
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
         }
         // Android 14+ requires the foreground service to be running with the
         // mediaProjection type *before* getMediaProjection() is called, so this has to
@@ -130,6 +132,9 @@ class HapticService : Service() {
 
         if (source == SourceKind.LOCAL_LIBRARY) {
             return startCachedPlayback()
+        }
+        if (source == SourceKind.NAMIDA) {
+            return startNamidaFollow()
         }
 
         detector.reset()
@@ -323,17 +328,7 @@ class HapticService : Service() {
             return START_NOT_STICKY
         }
 
-        cachedTrack = cached
-        cachedFrames = frames
-        cachedCursor = 0
-        lastScheduledBeatMs = Float.NaN
-        beatStrength = 0.85f
-        cachedThresholder.reset()
-        cachedBeatGrid = if (cached.beatConfidence >= TempoTracker.MIN_CONFIDENCE) {
-            CachedBeatGrid(cached.beatPeriodMs, cached.beatAnchorMs, cached.beatConfidence)
-        } else {
-            null
-        }
+        loadCached(cached, frames)
 
         val mp = try {
             MediaPlayer().apply {
@@ -369,6 +364,87 @@ class HapticService : Service() {
         return START_STICKY
     }
 
+    /** Arms the cached-timeline state for [cached]. Shared by the built-in player and Namida. */
+    private fun loadCached(cached: CachedTrack, frames: List<FluxFrame>) {
+        cachedTrack = cached
+        cachedFrames = frames
+        cachedCursor = 0
+        lastScheduledBeatMs = Float.NaN
+        beatStrength = 0.85f
+        cachedThresholder.reset()
+        cachedBeatGrid = if (cached.beatConfidence >= TempoTracker.MIN_CONFIDENCE) {
+            CachedBeatGrid(cached.beatPeriodMs, cached.beatAnchorMs, cached.beatConfidence)
+        } else {
+            null
+        }
+        EngineState.bpm.value = cached.bpm
+        EngineState.confidence.value = cached.beatConfidence
+    }
+
+    // ---------------------------------------------------------------- Namida follow
+
+    private var followedId: String? = null
+    private var announcedMissing: String? = null
+
+    /**
+     * Follows Namida through its media session and taps from MMV's cached analysis of
+     * whatever it is playing. No audio is captured or decoded here.
+     */
+    private fun startNamidaFollow(): Int {
+        followedId = null
+        announcedMissing = null
+        cachedTrack = null
+        cachedFrames = emptyList()
+
+        EngineState.error.value = null
+        EngineState.running.value = true
+
+        MediaSessionLink.connect(this, MediaSessionLink.NAMIDA_PACKAGE) { ok, message ->
+            if (!ok) main.post { stopEverything(message ?: "Could not reach Namida") }
+            else EngineState.notice.value = "Following Namida"
+        }
+
+        val tick = object : Runnable {
+            override fun run() {
+                namidaTick()
+                pollRunnable?.let { main.postDelayed(it, POLL_MS) }
+            }
+        }
+        pollRunnable = tick
+        main.postDelayed(tick, POLL_MS)
+        return START_STICKY
+    }
+
+    private fun namidaTick() {
+        if (!MediaSessionLink.connected) return
+        val id = MediaSessionLink.mediaId
+
+        // Track change: swap in the cached analysis for the new file, if MMV has one.
+        if (id != followedId) {
+            followedId = id
+            cachedTrack = null
+            cachedFrames = emptyList()
+            if (id != null) {
+                val cached = MediaSessionLink.resolveCached(this, id, MediaSessionLink.durationMs)
+                val frames = cached?.let { LibraryStore.readFlux(this, it) }
+                if (cached != null && frames != null) {
+                    loadCached(cached, frames)
+                    announcedMissing = null
+                } else if (announcedMissing != id) {
+                    // Said once per track, not every poll.
+                    announcedMissing = id
+                    EngineState.bpm.value = 0f
+                    EngineState.notice.value =
+                        "\"${MediaSessionLink.title ?: id.substringAfterLast('/')}\" is not analysed — " +
+                            "add its folder in Library"
+                }
+            }
+        }
+
+        val pos = MediaSessionLink.positionNowMs() ?: return
+        cachedTickAt(pos)
+    }
+
     /**
      * One poll of cached playback: replays every hop the player has moved past since the
      * last tick through [cachedThresholder] (never just the current one — the adaptive
@@ -382,16 +458,29 @@ class HapticService : Service() {
      */
     private fun cachedTick() {
         val mp = player ?: return
-        val track = cachedTrack ?: return
         if (!mp.isPlaying) return
+        cachedTickAt(mp.currentPosition.toFloat())
+    }
 
+    /** Advances the cached timeline to [posMs], wherever that position came from. */
+    private fun cachedTickAt(posMs: Float) {
+        val track = cachedTrack ?: return
         pullLiveSettings()
         val mode = EngineState.mode.value
         val offset = EngineState.offsetMs.value
         val hopMs = track.hopSeconds * 1000f
-        val posMs = mp.currentPosition.toFloat()
 
-        val targetHop = (posMs / hopMs).toInt().coerceAtMost(cachedFrames.size)
+        val targetHop = (posMs / hopMs).toInt().coerceIn(0, cachedFrames.size)
+
+        // Seek handling. The built-in player never seeks, but Namida does constantly. A jump
+        // backwards would stall the cursor until playback caught up; a jump forwards would
+        // replay every hop in between as one burst of taps. Either way: re-anchor instead.
+        val maxForwardHops = (SEEK_JUMP_MS / hopMs).toInt()
+        if (targetHop < cachedCursor - 2 || targetHop > cachedCursor + maxForwardHops) {
+            cachedCursor = targetHop
+            cachedThresholder.reset()
+            lastScheduledBeatMs = Float.NaN
+        }
         while (cachedCursor < targetHop) {
             val frame = cachedFrames[cachedCursor]
             val hopTimeMs = cachedCursor * hopMs
@@ -437,6 +526,8 @@ class HapticService : Service() {
     private fun stopCachedPlayback() {
         pollRunnable?.let { main.removeCallbacks(it) }
         pollRunnable = null
+        MediaSessionLink.disconnect()
+        followedId = null
         player?.let { runCatching { it.stop() }; runCatching { it.release() } }
         player = null
         cachedTrack = null
@@ -523,6 +614,9 @@ class HapticService : Service() {
         private const val CHANNEL_ID = "magicmusicv.engine"
         private const val NOTIF_ID = 1001
         private const val LOOKAHEAD_MS = 260f
+
+        /** A position change larger than this between polls is a seek, not playback. */
+        private const val SEEK_JUMP_MS = 1500f
 
         /** About -56 dBFS. Below this the input is silence, not quiet music. */
         private const val SILENCE_RMS = 0.0015f

@@ -314,18 +314,20 @@ private fun PlayTab(onPreview: () -> Unit) {
 
     Section("Source", "Where the audio comes from") {
         Choice(
-            options = listOf("System audio", "Microphone", "Library"),
+            options = listOf("System", "Mic", "Library", "Namida"),
             selectedIndex = when (source) {
                 SourceKind.PLAYBACK_CAPTURE -> 0
                 SourceKind.MICROPHONE -> 1
                 SourceKind.LOCAL_LIBRARY -> 2
+                SourceKind.NAMIDA -> 3
             },
             enabled = !running,
         ) {
             EngineState.source.value = when (it) {
                 0 -> SourceKind.PLAYBACK_CAPTURE
                 1 -> SourceKind.MICROPHONE
-                else -> SourceKind.LOCAL_LIBRARY
+                2 -> SourceKind.LOCAL_LIBRARY
+                else -> SourceKind.NAMIDA
             }
         }
         Supporting(
@@ -338,6 +340,10 @@ private fun PlayTab(onPreview: () -> Unit) {
                 SourceKind.LOCAL_LIBRARY ->
                     "Plays a track MMV has already analysed — no live capture, no FFT while " +
                         "it plays. Pick a track in the Library tab first."
+                SourceKind.NAMIDA ->
+                    "Follows Namida through its media session and taps from MMV's cached " +
+                        "analysis. No capture, no root. Start Namida first; tracks must be " +
+                        "analysed in the Library tab."
             }
         )
     }
@@ -740,6 +746,8 @@ private fun SetupTab(
     val instrument by EngineState.instrument.collectAsState()
     val showBand by EngineState.showBand.collectAsState()
     val bandPalette by EngineState.bandPalette.collectAsState()
+    val enhancedAnimations by EngineState.enhancedAnimations.collectAsState()
+    val heroMilestones by EngineState.heroMilestones.collectAsState()
     val resolved = resolveBackend(backendChoice, autoBackend, oplusAvailable)
 
     Section("Haptic engine", OemSupport.deviceLabel) {
@@ -848,6 +856,19 @@ private fun SetupTab(
 
         // Character and instrument only mean anything while the band is drawn.
         if (showBand) {
+            SwitchRow(
+                "Enhanced animations",
+                if (enhancedAnimations) "Squash, leans, expressions and power-chord sparks"
+                else "Simple sway and nod",
+                enhancedAnimations,
+            ) { EngineState.enhancedAnimations.value = it }
+
+            SwitchRow(
+                "Hero X milestones",
+                "Hero X takes the stage for 5 seconds every 1000 taps",
+                heroMilestones,
+            ) { EngineState.heroMilestones.value = it }
+
             Supporting("Band colours")
             Choice(
                 options = BandPalette.entries.map { it.title },

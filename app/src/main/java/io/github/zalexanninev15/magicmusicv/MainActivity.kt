@@ -253,7 +253,7 @@ class MainActivity : ComponentActivity() {
         val needed = mutableListOf<String>()
         // Local library playback uses MMV's own decoder, not the microphone — asking for
         // RECORD_AUDIO here would be a permission prompt with nothing behind it.
-        if (source != SourceKind.LOCAL_LIBRARY &&
+        if (source != SourceKind.LOCAL_LIBRARY && source != SourceKind.NAMIDA &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) needed += Manifest.permission.RECORD_AUDIO
@@ -277,7 +277,8 @@ class MainActivity : ComponentActivity() {
                 val mgr = getSystemService(MediaProjectionManager::class.java)
                 projectionLauncher.launch(mgr.createScreenCaptureIntent())
             }
-            SourceKind.MICROPHONE, SourceKind.LOCAL_LIBRARY -> HapticService.start(this, 0, null)
+            SourceKind.MICROPHONE, SourceKind.LOCAL_LIBRARY, SourceKind.NAMIDA ->
+                HapticService.start(this, 0, null)
         }
     }
 }

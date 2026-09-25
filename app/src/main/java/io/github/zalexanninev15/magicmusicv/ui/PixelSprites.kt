@@ -30,12 +30,63 @@ fun spriteColor(
     '4' -> jacketShade
     '5' -> Color(0xFF14100F)
     '9' -> Color(0xFFFFD75E)
+    'R' -> Color(0xFF9B1D2A)   // tie
     '6' -> Color(0xFF2B2B33)   // instrument body
     '7' -> Color(0xFFC08A4A)   // fretboard / wood
     '8' -> Color(0xFFD9D9E3)   // metal, strings, keys
     '9' -> Color(0xFFFFD75E)
     else -> null
 }
+
+/**
+ * Everything needed to draw one figure. Characters and Hero X both resolve to this, so one
+ * drawing routine animates all of them the same way.
+ */
+class SpriteLook(
+    val rows: List<String>,
+    val hair: Color,
+    val skin: Color,
+    val jacket: Color,
+    val jacketShade: Color,
+    val eye: Color,
+    val eyeClosed: Color,
+) {
+    fun color(ch: Char): Color? = spriteColor(ch, hair, skin, jacket, jacketShade, eye)
+}
+
+/**
+ * Hero X, who takes over the band at tap milestones.
+ *
+ * Drawn from the reference art: white slicked-back hair, amber glasses, white three-piece
+ * suit over a black shirt and dark red tie, a white X at the collar, one arm raised pointing
+ * straight up. Not selectable — he only turns up when earned.
+ */
+val HERO_X_LOOK = SpriteLook(
+    rows = listOf(
+        "...........2....",
+        "....1111...22...",
+        "...111111..22...",
+        "..1111111..33...",
+        "..11222211.33...",
+        "..1EEE2EEE.33...",
+        "...12222211333..",
+        "...333585333....",
+        "..3333858333....",
+        "..3335R5R333....",
+        "..3335RR5333....",
+        "...3355R533.....",
+        "...333..333.....",
+        "...44....44.....",
+        "...44....44.....",
+        "..888....888....",
+    ),
+    hair = Color(0xFFECEDF3),
+    skin = Color(0xFFF1D2C0),
+    jacket = Color(0xFFF6F6FA),
+    jacketShade = Color(0xFFBFC0CE),
+    eye = Color(0xFFF3A63B),
+    eyeClosed = Color(0xFFF3A63B),
+)
 
 /** Rows 0..7 are the head, 8..12 the torso, 13..15 the legs. Used for per-part animation. */
 const val HEAD_LAST_ROW = 7
@@ -153,7 +204,13 @@ enum class PixelCharacter(
             "...444..444.....",
             "...555..555.....",
         ),
-    ),
+    );
+
+    // Entries first, then members, separated by the semicolon above: Kotlin requires that
+    // order in an enum body.
+    val look: SpriteLook by lazy {
+        SpriteLook(rows, hair, skin, jacket, jacketShade, eye, eyeClosed)
+    }
 }
 
 enum class PixelInstrument(
