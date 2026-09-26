@@ -14,7 +14,17 @@ import kotlin.math.roundToInt
  * haptic layer *schedule* the next beat ahead of time, which is the only way to place a
  * tap exactly on — or deliberately before — the musical event.
  */
-class TempoTracker(private val hopSeconds: Float) {
+class TempoTracker(
+    private val hopSeconds: Float,
+    /**
+     * Live capture re-estimates about three times a second so the grid follows the music.
+     * Offline analysis reads only the final estimate, and each estimate replaces the last
+     * rather than building on it — so re-estimating through the whole file threw away
+     * hundreds of full autocorrelations per track. Offline passes false and calls
+     * [analyseNow] once at the end.
+     */
+    private val autoAnalyse: Boolean = true,
+) {
 
     private val size = 1024                       // ~5.5 s of envelope history
     private val env = FloatArray(size)
@@ -41,11 +51,16 @@ class TempoTracker(private val hopSeconds: Float) {
 
     val periodSeconds: Float? get() = if (periodFrames > 0) periodFrames * hopSeconds else null
 
+    /** Runs one estimate over the current window. For offline analysis, after the last push. */
+    fun analyseNow() {
+        if (total > size) analyse()
+    }
+
     fun push(flux: Float) {
         env[pos] = flux
         pos = (pos + 1) % size
         total++
-        if (total > size && total - lastAnalysis >= 64) {   // re-estimate ~3x/second
+        if (autoAnalyse && total > size && total - lastAnalysis >= 64) {   // re-estimate ~3x/second
             lastAnalysis = total
             analyse()
         }

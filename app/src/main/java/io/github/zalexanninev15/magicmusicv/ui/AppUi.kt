@@ -59,6 +59,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -77,6 +78,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.zalexanninev15.magicmusicv.AppTheme
 import io.github.zalexanninev15.magicmusicv.EngineState
@@ -105,7 +107,7 @@ private val SectionGap = 24.dp
 private val ItemGap = 8.dp
 
 private enum class Dest(val label: String) {
-    PLAY("Play"), TUNE("Tune"), LIBRARY("Library"), SETUP("Setup")
+    PLAY("Play"), TUNE("Tune"), LIBRARY("Library"), SETUP("Setup"), ABOUT("About")
 }
 
 @Composable
@@ -121,6 +123,7 @@ fun MagicMusicScreen(
     onPreviewEffect: (Int, Int) -> Unit,
     onPreviewMagic: (String) -> Unit,
     onPreviewMagicBand: (String, Int) -> Unit,
+    onUiTick: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onPreview: () -> Unit,
@@ -133,7 +136,6 @@ fun MagicMusicScreen(
     onDeleteTrackCache: (String) -> Unit,
 ) {
     var dest by remember { mutableStateOf(Dest.PLAY) }
-    var showAbout by remember { mutableStateOf(false) }
 
     val running by EngineState.running.collectAsState()
     val error by EngineState.error.collectAsState()
@@ -155,22 +157,17 @@ fun MagicMusicScreen(
         }
     }
 
-    if (showAbout) AboutDialog(version = version, onDismiss = { showAbout = false })
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Magic Music V") },
-                actions = {
-                    IconButton(onClick = { showAbout = true }) {
-                        Icon(Icons.Filled.Info, contentDescription = "About")
-                    }
-                },
             )
         },
         bottomBar = {
             // Three destinations on a compact screen is the navigation bar case in MD3.
             // Tabs were doing this job before, which is the two-destination pattern.
+            val navLabels by EngineState.navLabels.collectAsState()
             NavigationBar {
                 Dest.entries.forEach { d ->
                     NavigationBarItem(
@@ -183,11 +180,18 @@ fun MagicMusicScreen(
                                     Dest.TUNE -> Icons.Filled.Build
                                     Dest.LIBRARY -> Icons.Filled.List
                                     Dest.SETUP -> Icons.Filled.Settings
+                                    Dest.ABOUT -> Icons.Filled.Info
                                 },
                                 contentDescription = null,
                             )
                         },
-                        label = { Text(d.label) },
+                        // Icons alone when the setting says so; labels stay out of the way.
+                        label = if (navLabels) {
+                            { Text(d.label) }
+                        } else {
+                            null
+                        },
+                        alwaysShowLabel = navLabels,
                     )
                 }
             }
@@ -232,7 +236,7 @@ fun MagicMusicScreen(
                 Dest.PLAY -> PlayTab(onPreview)
                 Dest.TUNE -> TuneTab(
                     oplusAvailable, autoBackend, tapCandidates,
-                    onPreviewEffect, onPreviewMagic, onPreviewMagicBand,
+                    onPreviewEffect, onPreviewMagic, onPreviewMagicBand, onUiTick,
                 )
 
                 Dest.LIBRARY -> LibraryTab(
@@ -246,6 +250,8 @@ fun MagicMusicScreen(
                     tier, report, oplusAvailable, primitiveCount, autoBackend, autoReason,
                     running, onExport, onExportProfile, onImport,
                 )
+
+                Dest.ABOUT -> AboutTab(version, report)
             }
 
             // Clears the FAB and the navigation bar.
@@ -375,6 +381,7 @@ private fun TuneTab(
     onPreviewEffect: (Int, Int) -> Unit,
     onPreviewMagic: (String) -> Unit,
     onPreviewMagicBand: (String, Int) -> Unit,
+    onUiTick: () -> Unit,
 ) {
     val intensity by EngineState.intensity.collectAsState()
     val sensitivity by EngineState.sensitivity.collectAsState()
@@ -394,30 +401,43 @@ private fun TuneTab(
         }
     }
 
-    Section("Intensity", "${(intensity * 100).roundToInt()}%") {
-        Slider(
-            value = intensity,
-            onValueChange = { EngineState.intensity.value = it },
-            valueRange = 0.2f..1f,
-        )
-    }
-
-    Section("Sensitivity", "%.2f".format(sensitivity)) {
-        Slider(
-            value = sensitivity,
-            onValueChange = { EngineState.sensitivity.value = it },
-            valueRange = 1.05f..3f,
-        )
-        Supporting("Lower catches more; too low and the taps run together.")
-    }
-
-    Section("Timing offset", "$offsetMs ms") {
-        Slider(
-            value = offsetMs.toFloat(),
-            onValueChange = { EngineState.offsetMs.value = it.roundToInt() },
-            valueRange = -60f..60f,
-        )
-        Supporting("Negative values only bite in Beat and Hybrid, where the beat is predicted.")
+    // One card, label and value on a line, the slider right under it. Three full sections
+    // with display-size headings took most of a screen for three numbers.
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            // 5% steps from 20% to 100%.
+            TickSlider(
+                label = "Intensity",
+                valueText = "${(intensity * 100).roundToInt()}%",
+                value = intensity,
+                range = 0.2f..1f,
+                steps = 15,
+                onChange = { EngineState.intensity.value = it },
+                onTick = onUiTick,
+            )
+            // 0.1 steps from 1.1 to 3.0.
+            TickSlider(
+                label = "Sensitivity",
+                valueText = "%.1f".format(sensitivity),
+                value = sensitivity,
+                range = 1.1f..3f,
+                steps = 18,
+                onChange = { EngineState.sensitivity.value = it },
+                onTick = onUiTick,
+                hint = "Lower catches more; too low and taps run together",
+            )
+            // 5 ms steps from -60 to +60.
+            TickSlider(
+                label = "Timing offset",
+                valueText = "$offsetMs ms",
+                value = offsetMs.toFloat(),
+                range = -60f..60f,
+                steps = 23,
+                onChange = { EngineState.offsetMs.value = it.roundToInt() },
+                onTick = onUiTick,
+                hint = "Negative values only apply in Beat and Hybrid",
+            )
+        }
     }
 
     if (resolved == Backend.OPLUS || resolved == Backend.OPLUS_MMV) {
@@ -457,17 +477,11 @@ private fun EffectLab(
             LazyColumn(Modifier.heightIn(max = 260.dp)) {
                 items(shown.size) { i ->
                     val (name, id) = shown[i]
-                    ListItem(
-                        headlineContent = { Text(name.removePrefix("EFFECT_")) },
-                        supportingContent = { Text("id $id") },
-                        colors = ListItemDefaults.colors(
-                            containerColor = if (id == selected) {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
-                        ),
-                        modifier = Modifier.clickable {
+                    CompactRow(
+                        title = name.removePrefix("EFFECT_"),
+                        subtitle = "id $id",
+                        selected = id == selected,
+                        onClick = {
                             selected = id
                             onPreviewEffect(id, 1)
                         },
@@ -639,12 +653,11 @@ private fun LibraryTab(
 
     Section("Local library", "FLAC, MP3, M4A, Opus — analysed once, cached on device") {
         Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
-            FilledTonalButton(modifier = Modifier.weight(1f), onClick = onPickFolder) {
+            FilledTonalButton(onClick = onPickFolder) {
                 Text(if (tracks.isEmpty()) "Choose folder" else "Change folder")
             }
             val pending = tracks.count { cache[it.uri] == null }
             Button(
-                modifier = Modifier.weight(1f),
                 enabled = !analyzing && pending > 0,
                 onClick = onAnalyze,
             ) { Text(if (pending > 0) "Analyse ($pending)" else "All analysed") }
@@ -678,26 +691,77 @@ private fun LibraryTab(
         return
     }
 
+    var query by remember { mutableStateOf("") }
+    val checked by LibraryState.checked.collectAsState()
+
+    // Every word typed must appear somewhere in the name, in any order and as a fragment:
+    // "sukiga" finds nothing, but "suki koito" finds "07 - 好き… - 小糸 侑", and so does "flac 07".
+    val words = remember(query) {
+        query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    }
+    val shown = remember(tracks, words) {
+        if (words.isEmpty()) tracks
+        else tracks.filter { t -> val n = t.displayName.lowercase(); words.all { it in n } }
+    }
+
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        label = { Text("Search ${tracks.size} tracks") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(ItemGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val pendingChecked = checked.count { cache[it] == null }
+        Button(
+            enabled = !analyzing && pendingChecked > 0,
+            onClick = { LibraryState.analyze(context, checked) },
+        ) { Text("Analyse selected ($pendingChecked)") }
+        OutlinedButton(
+            onClick = {
+                LibraryState.checked.value =
+                    if (shown.all { it.uri in checked }) checked - shown.map { it.uri }.toSet()
+                    else checked + shown.map { it.uri }
+            },
+        ) { Text(if (shown.isNotEmpty() && shown.all { it.uri in checked }) "Unselect" else "Select shown") }
+    }
+
     OutlinedCard(Modifier.fillMaxWidth()) {
         LazyColumn(Modifier.heightIn(max = 420.dp)) {
-            items(tracks.size) { i ->
-                val track = tracks[i]
+            items(shown.size) { i ->
+                val track = shown[i]
                 val cached = cache[track.uri]
-                val isSelected = track.uri == selected
-                ListItem(
-                    headlineContent = { Text(track.displayName) },
-                    supportingContent = {
-                        Text(
-                            when {
-                                cached == null -> "Not analysed"
-                                cached.bpm > 0f -> "${cached.bpm.roundToInt()} BPM · " +
-                                    "${cached.durationMs / 1000 / 60}:" +
-                                    "${(cached.durationMs / 1000 % 60).toString().padStart(2, '0')}"
-                                else -> "Analysed, no steady tempo found"
-                            }
+                CompactRow(
+                    title = track.displayName,
+                    subtitle = when {
+                        cached == null -> "Not analysed"
+                        cached.bpm > 0f -> "${cached.bpm.roundToInt()} BPM · " +
+                            "${cached.durationMs / 1000 / 60}:" +
+                            "${(cached.durationMs / 1000 % 60).toString().padStart(2, '0')}"
+                        else -> "Analysed, no steady tempo found"
+                    },
+                    selected = track.uri == selected,
+                    // Tapping an analysed row picks it for playback; the checkbox is for
+                    // choosing what to analyse, so the two never fight over one gesture.
+                    onClick = if (cached != null) {
+                        { onSelectTrack(track.uri) }
+                    } else {
+                        null
+                    },
+                    leading = {
+                        Checkbox(
+                            checked = track.uri in checked,
+                            onCheckedChange = { on ->
+                                LibraryState.checked.value =
+                                    if (on) checked + track.uri else checked - track.uri
+                            },
                         )
                     },
-                    trailingContent = if (cached != null) {
+                    trailing = if (cached != null) {
                         {
                             IconButton(onClick = { onDeleteCache(track.uri) }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Remove cache")
@@ -706,20 +770,11 @@ private fun LibraryTab(
                     } else {
                         null
                     },
-                    colors = ListItemDefaults.colors(
-                        containerColor = if (isSelected) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surface
-                        },
-                    ),
-                    modifier = Modifier.clickable(enabled = cached != null) {
-                        onSelectTrack(track.uri)
-                    },
                 )
             }
         }
     }
+
 }
 
 // ---------------------------------------------------------------- Setup
@@ -747,7 +802,7 @@ private fun SetupTab(
     val showBand by EngineState.showBand.collectAsState()
     val bandPalette by EngineState.bandPalette.collectAsState()
     val enhancedAnimations by EngineState.enhancedAnimations.collectAsState()
-    val heroMilestones by EngineState.heroMilestones.collectAsState()
+    val navLabels by EngineState.navLabels.collectAsState()
     val resolved = resolveBackend(backendChoice, autoBackend, oplusAvailable)
 
     Section("Haptic engine", OemSupport.deviceLabel) {
@@ -831,11 +886,9 @@ private fun SetupTab(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
                 FilledTonalButton(
-                    modifier = Modifier.weight(1f),
                     onClick = { OemSupport.requestBatteryUnrestricted(context) },
                 ) { Text("Battery") }
                 FilledTonalButton(
-                    modifier = Modifier.weight(1f),
                     onClick = { OemSupport.openAutoStartSettings(context) },
                 ) { Text("Auto-start") }
             }
@@ -863,11 +916,6 @@ private fun SetupTab(
                 enhancedAnimations,
             ) { EngineState.enhancedAnimations.value = it }
 
-            SwitchRow(
-                "Hero X milestones",
-                "Hero X takes the stage for 5 seconds every 1000 taps",
-                heroMilestones,
-            ) { EngineState.heroMilestones.value = it }
 
             Supporting("Band colours")
             Choice(
@@ -889,6 +937,12 @@ private fun SetupTab(
         }
 
         SwitchRow(
+            "Navigation labels",
+            if (navLabels) "Icons with labels" else "Icons only",
+            navLabels,
+        ) { EngineState.navLabels.value = it }
+
+        SwitchRow(
             "Material You colours",
             if (dynamicColor) "Palette from your wallpaper" else "The app's own palette",
             dynamicColor,
@@ -896,40 +950,6 @@ private fun SetupTab(
     }
 
     ProfilesSection(onExport, onExportProfile, onImport)
-
-    Section("Diagnostics") {
-        var show by remember { mutableStateOf(false) }
-        val clipboard = LocalClipboardManager.current
-        Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
-            FilledTonalButton(
-                modifier = Modifier.weight(1f),
-                onClick = { show = !show },
-            ) { Text(if (show) "Hide report" else "Haptics report") }
-            FilledTonalButton(
-                modifier = Modifier.weight(1f),
-                onClick = { clipboard.setText(AnnotatedString(report)) },
-            ) { Text("Copy") }
-        }
-        if (show) {
-            OutlinedCard(Modifier.fillMaxWidth()) {
-                SelectionContainer {
-                    Text(
-                        report,
-                        modifier = Modifier
-                            .horizontalScroll(rememberScrollState())
-                            .padding(ScreenMargin),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-            }
-        }
-        if (OplusHaptics.available) {
-            OutlinedButton(onClick = { OplusHaptics.forgetFailures() }) {
-                Text("Retry refused effects")
-            }
-        }
-    }
 }
 
 @Composable
@@ -952,7 +972,6 @@ private fun ProfilesSection(
             modifier = Modifier.fillMaxWidth(),
         )
         Button(
-            modifier = Modifier.fillMaxWidth(),
             onClick = {
                 if (ProfileStore.save(context, name, EngineState.snapshot())) {
                     profiles = ProfileStore.list(context)
@@ -976,14 +995,22 @@ private fun ProfilesSection(
                     items(profiles.size) { i ->
                         val p = profiles[i]
                         val active = p == activeProfile
-                        // Typed explicitly: a bare if/else returning a composable lambda or
-                        // null leaves the slot's type to inference, which is fragile here.
-                        val supporting: (@Composable () -> Unit)? =
-                            if (active) ({ Text("Active") }) else null
-                        ListItem(
-                            headlineContent = { Text(p) },
-                            supportingContent = supporting,
-                            trailingContent = {
+                        CompactRow(
+                            title = p,
+                            subtitle = if (active) "Active" else null,
+                            selected = active,
+                            onClick = {
+                                val snap = ProfileStore.load(context, p, EngineState.DEFAULTS)
+                                if (snap != null) {
+                                    EngineState.applySnapshot(snap)
+                                    EngineState.save(context)
+                                    activeProfile = p
+                                    EngineState.notice.value = "Loaded \"$p\""
+                                } else {
+                                    EngineState.error.value = "\"$p\" is unreadable"
+                                }
+                            },
+                            trailing = {
                                 Row {
                                     IconButton(onClick = { onExportProfile(p) }) {
                                         Icon(
@@ -1004,26 +1031,6 @@ private fun ProfilesSection(
                                     }
                                 }
                             },
-                            colors = ListItemDefaults.colors(
-                                containerColor = if (active) {
-                                    MaterialTheme.colorScheme.secondaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                },
-                            ),
-                            // Tapping the row applies the profile straight away — no Load
-                            // button to hunt for.
-                            modifier = Modifier.clickable {
-                                val snap = ProfileStore.load(context, p, EngineState.DEFAULTS)
-                                if (snap != null) {
-                                    EngineState.applySnapshot(snap)
-                                    EngineState.save(context)
-                                    activeProfile = p
-                                    EngineState.notice.value = "Loaded \"$p\""
-                                } else {
-                                    EngineState.error.value = "\"$p\" is unreadable"
-                                }
-                            },
                         )
                     }
                 }
@@ -1032,11 +1039,10 @@ private fun ProfilesSection(
 
         HorizontalDivider()
         Row(horizontalArrangement = Arrangement.spacedBy(ItemGap)) {
-            FilledTonalButton(modifier = Modifier.weight(1f), onClick = onExport) { Text("Export all") }
-            FilledTonalButton(modifier = Modifier.weight(1f), onClick = onImport) { Text("Import") }
+            FilledTonalButton(onClick = onExport) { Text("Export all") }
+            FilledTonalButton(onClick = onImport) { Text("Import") }
         }
         OutlinedButton(
-            modifier = Modifier.fillMaxWidth(),
             onClick = {
                 EngineState.resetToDefaults()
                 EngineState.save(context)
@@ -1047,6 +1053,118 @@ private fun ProfilesSection(
 }
 
 // ---------------------------------------------------------------- building blocks
+
+/**
+ * A labelled slider with visible divisions and a haptic knock on each one.
+ *
+ * Snapping is done here rather than trusted to the Slider: whether its callback reports the
+ * snapped value or the raw drag position has varied across Material versions, and a raw
+ * position would knock on every pixel of movement instead of once per division.
+ */
+@Composable
+private fun TickSlider(
+    label: String,
+    valueText: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onChange: (Float) -> Unit,
+    onTick: () -> Unit,
+    hint: String? = null,
+) {
+    val intervals = steps + 1
+    val span = range.endInclusive - range.start
+    fun indexOf(v: Float) = (((v - range.start) / span) * intervals).roundToInt().coerceIn(0, intervals)
+    var lastIndex by remember { mutableIntStateOf(indexOf(value)) }
+
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, style = MaterialTheme.typography.titleSmall)
+            Text(
+                valueText,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = { v ->
+                val i = indexOf(v)
+                if (i != lastIndex) {
+                    lastIndex = i
+                    onTick()
+                }
+                onChange(range.start + span * i / intervals)
+            },
+            valueRange = range,
+            steps = steps,
+            // Divisions visible but quiet, so they guide without cluttering the track.
+            colors = SliderDefaults.colors(
+                activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.35f),
+                inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            ),
+        )
+        if (hint != null) {
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * A dense list row for the scrolling lists.
+ *
+ * ListItem is sized for navigation lists — 56 to 72 dp per row with generous padding — which
+ * in a 360-track library meant a thumb-width of scrolling per handful of songs.
+ */
+@Composable
+private fun CompactRow(
+    title: String,
+    subtitle: String?,
+    selected: Boolean,
+    onClick: (() -> Unit)?,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                if (selected) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.surface
+            )
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
+            .padding(start = if (leading != null) 4.dp else 12.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        leading?.invoke()
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        trailing?.invoke()
+    }
+}
 
 /** Section header plus its content, on the MD3 title/body pairing. */
 @Composable

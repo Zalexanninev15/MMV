@@ -90,7 +90,6 @@ fun PixelBand(
     val level by EngineState.level.collectAsState()
     val palette by EngineState.bandPalette.collectAsState()
     val enhanced by EngineState.enhancedAnimations.collectAsState()
-    val heroOn by EngineState.heroMilestones.collectAsState()
     val tapCount by EngineState.tapCount.collectAsState()
 
     val waves = remember { mutableStateListOf<Wave>() }
@@ -133,7 +132,7 @@ fun PixelBand(
         if (m < lastMilestone) lastMilestone = m
         if (m > lastMilestone) {
             lastMilestone = m
-            if (heroOn && m > 0) {
+            if (m > 0) {
                 heroStartNanos = nowNanos
                 heroMilestone = m
             }
@@ -192,7 +191,7 @@ fun PixelBand(
     }
 
     val classic = palette == BandPalette.CLASSIC
-    val hero = heroOn && heroActive
+    val hero = heroActive
     val shownTitle = if (hero) "HERO X · ${heroMilestone}K taps" else title
 
     Box(

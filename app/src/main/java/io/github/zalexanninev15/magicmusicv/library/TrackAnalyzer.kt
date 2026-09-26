@@ -92,7 +92,7 @@ object TrackAnalyzer {
         }
 
         val fluxExtractor = FluxExtractor(sampleRate)
-        val tempo = TempoTracker(fluxExtractor.hopSeconds)
+        val tempo = TempoTracker(fluxExtractor.hopSeconds, autoAnalyse = false)
         val estimatedHops = if (durationUs > 0) {
             (durationUs / 1_000_000.0 / fluxExtractor.hopSeconds).toInt().coerceAtLeast(64)
         } else {
@@ -100,20 +100,25 @@ object TrackAnalyzer {
         }
         val frames = ArrayList<FluxFrame>(estimatedHops)
 
-        var carry = FloatArray(0)
+        // Samples are gathered into one reused hop buffer. The previous version concatenated
+        // carry-over and new samples into a fresh array per decoder buffer and copied out a
+        // fresh array per hop — tens of thousands of short-lived allocations per track.
+        val hop = FloatArray(fluxExtractor.hopSize)
+        var fill = 0
         fun feedHops(samples: FloatArray, count: Int) {
-            val combined = FloatArray(carry.size + count)
-            System.arraycopy(carry, 0, combined, 0, carry.size)
-            System.arraycopy(samples, 0, combined, carry.size, count)
-            var offset = 0
-            while (combined.size - offset >= fluxExtractor.hopSize) {
-                val hop = combined.copyOfRange(offset, offset + fluxExtractor.hopSize)
-                val f = fluxExtractor.extract(hop)
-                frames.add(f)
-                tempo.push(f.sum)
-                offset += fluxExtractor.hopSize
+            var i = 0
+            while (i < count) {
+                val take = minOf(hop.size - fill, count - i)
+                System.arraycopy(samples, i, hop, fill, take)
+                fill += take
+                i += take
+                if (fill == hop.size) {
+                    val f = fluxExtractor.extract(hop)
+                    frames.add(f)
+                    tempo.push(f.sum)
+                    fill = 0
+                }
             }
-            carry = if (offset < combined.size) combined.copyOfRange(offset, combined.size) else FloatArray(0)
         }
 
         val bufferInfo = MediaCodec.BufferInfo()
@@ -122,31 +127,39 @@ object TrackAnalyzer {
         val timeoutUs = 10_000L
 
         try {
+            // Fill every free input buffer and drain every ready output buffer before
+            // waiting at all. The old loop fed one input, then blocked up to 10 ms for one
+            // output; the decoder works on its own thread, so output was often not ready yet
+            // and that wait was paid on nearly every frame of every file.
             while (!sawOutputEOS) {
-                if (!sawInputEOS) {
-                    val inIndex = codec.dequeueInputBuffer(timeoutUs)
-                    if (inIndex >= 0) {
-                        val inBuf = codec.getInputBuffer(inIndex)!!
-                        val sampleSize = extractor.readSampleData(inBuf, 0)
-                        if (sampleSize < 0) {
-                            codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                            sawInputEOS = true
-                        } else {
-                            codec.queueInputBuffer(inIndex, 0, sampleSize, extractor.sampleTime, 0)
-                            extractor.advance()
-                        }
+                var progressed = false
+
+                while (!sawInputEOS) {
+                    val inIndex = codec.dequeueInputBuffer(0)
+                    if (inIndex < 0) break
+                    val inBuf = codec.getInputBuffer(inIndex)!!
+                    val sampleSize = extractor.readSampleData(inBuf, 0)
+                    if (sampleSize < 0) {
+                        codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        sawInputEOS = true
+                    } else {
+                        codec.queueInputBuffer(inIndex, 0, sampleSize, extractor.sampleTime, 0)
+                        extractor.advance()
                     }
+                    progressed = true
                 }
 
-                val outIndex = codec.dequeueOutputBuffer(bufferInfo, timeoutUs)
-                if (outIndex >= 0) {
+                while (true) {
+                    // Only block when this pass made no progress at all.
+                    val outIndex = codec.dequeueOutputBuffer(bufferInfo, if (progressed) 0L else timeoutUs)
+                    if (outIndex < 0) break
+                    progressed = true
                     if (bufferInfo.size > 0) {
                         val outBuf = codec.getOutputBuffer(outIndex)!!
                         outBuf.position(bufferInfo.offset)
                         outBuf.limit(bufferInfo.offset + bufferInfo.size)
                         // Android's audio decoders emit 16-bit signed little-endian PCM,
-                        // interleaved by channel — the normal case across MediaCodec audio
-                        // decoders on every format this app targets.
+                        // interleaved by channel.
                         val shorts = outBuf.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
                         val sampleCount = shorts.remaining()
                         val raw = ShortArray(sampleCount)
@@ -170,12 +183,13 @@ object TrackAnalyzer {
                         }
                     }
                     codec.releaseOutputBuffer(outIndex, false)
-                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) sawOutputEOS = true
+                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                        sawOutputEOS = true
+                        break
+                    }
                 }
-                // INFO_OUTPUT_FORMAT_CHANGED is intentionally ignored: a mid-stream change
-                // in sample rate or channel count inside one continuous audio file would be
-                // unusual, and reacting to it would mean rebuilding fluxExtractor and tempo
-                // mid-decode. Out of scope for v1.
+                // Negative indices — try-again, format-changed — just end the drain pass.
+                // A mid-stream format change inside one audio file is out of scope, as before.
             }
         } catch (_: Exception) {
             codec.stop(); codec.release(); extractor.release()
@@ -193,6 +207,10 @@ object TrackAnalyzer {
         }
 
         onProgress(1f)
+
+        // The one tempo estimate, over the final window — what the per-64-hop estimates
+        // used to converge to, computed once instead of hundreds of times.
+        tempo.analyseNow()
 
         Result(
             sampleRate = sampleRate,

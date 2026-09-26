@@ -185,6 +185,32 @@ class HapticEngine(context: Context) {
 
     fun play(tap: Tap) = play(listOf(tap))
 
+    /**
+     * One light knock for a UI detent — a slider crossing a division.
+     *
+     * Picked per device rather than through one path: the vendor keyboard tick on OnePlus and
+     * realme, a tuned primitive where the AOSP compose HAL exists, and the platform's
+     * predefined EFFECT_TICK everywhere else, which every vibrator HAL has to support in some
+     * form. Deliberately independent of the backend setting — a slider should click the same
+     * whether the music haptics run on AOSP or O-Haptics.
+     */
+    fun uiTick() {
+        if (OplusHaptics.available) {
+            val id = OplusHaptics.pick(
+                listOf("EFFECT_OTHER_KEYBOARD_WEAK", "EFFECT_WEAKEST_SHORT_VIBRATE_ONCE")
+            )
+            if (id != null && OplusHaptics.vibrate(id, OplusHaptics.strengthLight, false)) return
+        }
+        val effect = when {
+            hasTick -> VibrationEffect.startComposition()
+                .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 0.6f).compose()
+            hasLowTick -> VibrationEffect.startComposition()
+                .addPrimitive(VibrationEffect.Composition.PRIMITIVE_LOW_TICK, 0.8f).compose()
+            else -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        }
+        runCatching { vibrate(effect) }
+    }
+
     fun cancel() {
         runCatching { vibrator.cancel() }
         OplusHaptics.cancel()

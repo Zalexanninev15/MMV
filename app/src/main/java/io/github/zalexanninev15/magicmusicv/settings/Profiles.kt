@@ -33,7 +33,7 @@ data class SettingsSnapshot(
     val showBand: Boolean,
     val bandPalette: BandPalette,
     val enhancedAnimations: Boolean,
-    val heroMilestones: Boolean,
+    val navLabels: Boolean,
     val character: PixelCharacter,
     val instrument: PixelInstrument,
 )
@@ -75,7 +75,7 @@ object SettingsCodec {
         put("showBand", s.showBand)
         put("bandPalette", s.bandPalette.name)
         put("enhancedAnimations", s.enhancedAnimations)
-        put("heroMilestones", s.heroMilestones)
+        put("navLabels", s.navLabels)
         put("character", s.character.name)
         put("instrument", s.instrument.name)
     }.toString(2)
@@ -110,7 +110,7 @@ object SettingsCodec {
             showBand = o.optBoolean("showBand", defaults.showBand),
             bandPalette = enumOr(o.optString("bandPalette"), BandPalette.entries, defaults.bandPalette),
             enhancedAnimations = o.optBoolean("enhancedAnimations", defaults.enhancedAnimations),
-            heroMilestones = o.optBoolean("heroMilestones", defaults.heroMilestones),
+            navLabels = o.optBoolean("navLabels", defaults.navLabels),
             character = enumOr(o.optString("character"), PixelCharacter.entries, defaults.character),
             instrument = enumOr(o.optString("instrument"), PixelInstrument.entries, defaults.instrument),
             // Unknown ids are dropped rather than failing the whole import.

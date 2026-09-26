@@ -70,7 +70,7 @@ object EngineState {
         showBand = true,
         bandPalette = BandPalette.STANDARD,
         enhancedAnimations = true,
-        heroMilestones = true,
+        navLabels = true,
         character = PixelCharacter.ROADIE,
         instrument = PixelInstrument.GUITAR,
         magicPreset = "",
@@ -117,8 +117,8 @@ object EngineState {
     /** Squash and stretch, leans, eye expressions and power-chord sparks on the character. */
     val enhancedAnimations = MutableStateFlow(DEFAULTS.enhancedAnimations)
 
-    /** Hero X takes over the band for five seconds at every thousandth tap. */
-    val heroMilestones = MutableStateFlow(DEFAULTS.heroMilestones)
+    /** Text labels under the navigation bar icons. */
+    val navLabels = MutableStateFlow(DEFAULTS.navLabels)
 
     val character = MutableStateFlow(DEFAULTS.character)
     val instrument = MutableStateFlow(DEFAULTS.instrument)
@@ -148,7 +148,7 @@ object EngineState {
         showBand = showBand.value,
         bandPalette = bandPalette.value,
         enhancedAnimations = enhancedAnimations.value,
-        heroMilestones = heroMilestones.value,
+        navLabels = navLabels.value,
         character = character.value,
         instrument = instrument.value,
         magicPreset = magicPreset.value,
@@ -173,7 +173,7 @@ object EngineState {
         showBand.value = s.showBand
         bandPalette.value = s.bandPalette
         enhancedAnimations.value = s.enhancedAnimations
-        heroMilestones.value = s.heroMilestones
+        navLabels.value = s.navLabels
         character.value = s.character
         instrument.value = s.instrument
         magicPreset.value = s.magicPreset
@@ -204,7 +204,7 @@ object EngineState {
         showBand.value = p.getBoolean("showBand", DEFAULTS.showBand)
         bandPalette.value = enumOr(p.getString("bandPalette", null), BandPalette.entries, DEFAULTS.bandPalette)
         enhancedAnimations.value = p.getBoolean("enhancedAnimations", DEFAULTS.enhancedAnimations)
-        heroMilestones.value = p.getBoolean("heroMilestones", DEFAULTS.heroMilestones)
+        navLabels.value = p.getBoolean("navLabels", DEFAULTS.navLabels)
         character.value = enumOr(p.getString("character", null), PixelCharacter.entries, DEFAULTS.character)
         instrument.value = enumOr(p.getString("instrument", null), PixelInstrument.entries, DEFAULTS.instrument)
     }
@@ -231,7 +231,7 @@ object EngineState {
             putBoolean("showBand", s.showBand)
             putString("bandPalette", s.bandPalette.name)
             putBoolean("enhancedAnimations", s.enhancedAnimations)
-            putBoolean("heroMilestones", s.heroMilestones)
+            putBoolean("navLabels", s.navLabels)
             putString("character", s.character.name)
             putString("instrument", s.instrument.name)
         }.apply()

@@ -193,6 +193,7 @@ class MainActivity : ComponentActivity() {
                         OplusHaptics.lastError ?: "Effect could not be played"
                     }
                 },
+                onUiTick = { engine.uiTick() },
                 onStart = ::requestAndStart,
                 onStop = { HapticService.stop(this) },
                 onPreview = {

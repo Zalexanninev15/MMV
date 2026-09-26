@@ -18,6 +18,7 @@ object UpdateChecker {
 
     const val REPO_URL = "https://github.com/Zalexanninev15/MMV"
     const val MASTODON_URL = "https://mastodon.ml/@voltmor"
+    const val DONATE_URL = "https://z15.neocities.org/donate/pay"
 
     private const val LATEST = "https://api.github.com/repos/Zalexanninev15/MMV/releases/latest"
     // More than one, because the newest entry may be the rolling CI pre-release, which is
