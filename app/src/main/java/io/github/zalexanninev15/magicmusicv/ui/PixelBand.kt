@@ -39,6 +39,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.random.Random
 
 private class Wave(val startNanos: Long, val strength: Float, val accent: Boolean)
 private class Note(val startNanos: Long, val lane: Int, val drift: Float, val fromHead: Boolean)
@@ -49,6 +50,36 @@ private const val CLASSIC_WAVE_LIFE_MS = 900f
 private const val NOTE_LIFE_MS = 900f
 private const val SPARK_LIFE_MS = 320f
 private const val EQ_COLUMNS = 5
+
+private const val G_RAISE = 450f
+private const val G_SETTLE = 300f
+private const val G_REMOVE_RAISE = 350f
+private const val G_REMOVE_LOWER = 450f
+
+private fun glassesTotalMs(wear: Float) = G_RAISE + G_SETTLE + wear + G_REMOVE_RAISE + G_REMOVE_LOWER
+
+/**
+ * Where the glasses gag is at [e] ms in: how far the free hand is raised (0 at the hip, 1 at
+ * the face), whether the glasses sit on the face or travel in the hand, and their opacity.
+ * Null once it is over.
+ */
+private class GlassesPose(val handT: Float, val onFace: Boolean, val carried: Boolean, val alpha: Float)
+
+private fun glassesPose(e: Float, wear: Float): GlassesPose? {
+    if (e < 0f || e >= glassesTotalMs(wear)) return null
+    fun ease(t: Float) = t.coerceIn(0f, 1f).let { it * it * (3f - 2f * it) }
+    var t = e
+    if (t < G_RAISE) return GlassesPose(ease(t / G_RAISE), onFace = false, carried = true, alpha = 1f)
+    t -= G_RAISE
+    if (t < G_SETTLE) return GlassesPose(1f - ease(t / G_SETTLE), onFace = true, carried = false, alpha = 1f)
+    t -= G_SETTLE
+    if (t < wear) return GlassesPose(0f, onFace = true, carried = false, alpha = 1f)
+    t -= wear
+    if (t < G_REMOVE_RAISE) return GlassesPose(ease(t / G_REMOVE_RAISE), onFace = true, carried = false, alpha = 1f)
+    t -= G_REMOVE_RAISE
+    val u = t / G_REMOVE_LOWER
+    return GlassesPose(1f - ease(u), onFace = false, carried = true, alpha = if (u > 0.7f) (1f - u) / 0.3f else 1f)
+}
 
 private const val HERO_EVERY_TAPS = 1000L
 private const val HERO_DURATION_NS = 5_000_000_000L
@@ -103,6 +134,9 @@ fun PixelBand(
     var squashNanos by remember { mutableLongStateOf(0L) }
     var leanStartNanos by remember { mutableLongStateOf(0L) }
     var leanDir by remember { mutableStateOf(-1f) }
+    var glassesStartNanos by remember { mutableLongStateOf(0L) }
+    var glassesWearMs by remember { mutableStateOf(6000f) }
+    val glassesCooldown = remember { longArrayOf(0L) }
     var shredUntilNanos by remember { mutableLongStateOf(0L) }
     var sparkReadyNanos by remember { mutableLongStateOf(0L) }
     var flashNanos by remember { mutableLongStateOf(0L) }
@@ -139,6 +173,14 @@ fun PixelBand(
         }
     }
 
+    val lyricLine by EngineState.lyricLine.collectAsState()
+    LaunchedEffect(lyricLine) {
+        if (lyricLine > 0) {
+            notes.add(Note(nowNanos, 0, 1f, fromHead = true))
+            notes.add(Note(nowNanos + 120_000_000L, 2, -1f, fromHead = false))
+        }
+    }
+
     LaunchedEffect(pulse) {
         val p = pulse ?: return@LaunchedEffect
         val strength = p.strength.coerceIn(0.15f, 1f)
@@ -153,12 +195,30 @@ fun PixelBand(
         recentHits[recentIdx[0]] = nowNanos
         recentIdx[0] = (recentIdx[0] + 1) % recentHits.size
         val dense = recentHits.count { it != 0L && nowNanos - it < 1_500_000_000L }
+        val wasShredding = nowNanos < shredUntilNanos
         if (dense >= 7) shredUntilNanos = nowNanos + 1_200_000_000L
+        val shredStarted = !wasShredding && nowNanos < shredUntilNanos
+
+        // Shades on for the solo: when a dense passage kicks in, or now and then on an accent.
+        // Never twice within twenty seconds, never during Hero X, and it runs to the end.
+        val glassesBusy = glassesStartNanos != 0L &&
+            ageMs(nowNanos, glassesStartNanos) < glassesTotalMs(glassesWearMs)
+        if (enhanced && !heroActive && !glassesBusy && nowNanos > glassesCooldown[0] &&
+            (shredStarted || (p.accent && Random.nextFloat() < 0.04f))
+        ) {
+            glassesStartNanos = nowNanos
+            glassesWearMs = 5000f + Random.nextFloat() * 3000f
+            glassesCooldown[0] = nowNanos + ((glassesTotalMs(glassesWearMs) + 20_000f) * 1_000_000f).toLong()
+        }
 
         if (p.accent || strength > 0.55f) {
             strumFrame = !strumFrame
             lane = (lane + 1) % 3
-            notes.add(Note(nowNanos, lane, if (lane % 2 == 0) 1f else -1f, fromHead = lane == 1))
+            // With synced lyrics the notes only rise while a line is being sung and vanish in
+            // the gaps. Without them nothing is known, and they keep following the accents.
+            if (EngineState.vocal.value != false) {
+                notes.add(Note(nowNanos, lane, if (lane % 2 == 0) 1f else -1f, fromHead = lane == 1))
+            }
             squashNanos = nowNanos
             accentCount += 1
             // Every sixth accent throws a lean, alternating sides, never back to back.
@@ -246,6 +306,11 @@ fun PixelBand(
             val hitAge = ageMs(nowNanos, lastHitNanos)
             val hit = if (lastHitNanos == 0L) 0f else max(0f, 1f - hitAge / 260f)
             val rowDx = FloatArray(SPRITE_SIZE)
+            val pose = if (enhanced && !hero && glassesStartNanos != 0L) {
+                glassesPose(ageMs(nowNanos, glassesStartNanos), glassesWearMs)
+            } else {
+                null
+            }
             val rowDy = FloatArray(SPRITE_SIZE)
 
             if (hero) {
@@ -265,6 +330,7 @@ fun PixelBand(
                     eyesClosed = false, eyeSpread = 0f, armOut = 0f, armDir = 0f,
                     heroArmLift = hit * pc * 1.4f,
                     glint = if (glintT <= 1f) glintT else -1f,
+                    glasses = null, tSec = tSec,
                 )
             } else {
                 // Blink roughly every three seconds for ~130 ms.
@@ -321,8 +387,12 @@ fun PixelBand(
                     legLiftL = legL, legLiftR = legR,
                     instShearPx = (if (strumFrame) 1f else -1f) * hit * pc * 0.5f,
                     eyesClosed = blinking || (enhanced && nowNanos < shredUntilNanos),
-                    eyeSpread = eyeSpread, armOut = armOut, armDir = leanDir,
+                    eyeSpread = eyeSpread,
+                    // The free arm cannot fling out while it is busy with the glasses.
+                    armOut = if (pose != null) 0f else armOut,
+                    armDir = leanDir,
                     heroArmLift = 0f, glint = -1f,
+                    glasses = pose, tSec = tSec,
                 )
 
                 if (enhanced) drawSparks(sparks, nowNanos, centerX + pc * 2f, centerY + pc * 2f, pc)
@@ -524,6 +594,8 @@ private fun DrawScope.drawFigure(
     armOut: Float, armDir: Float,
     heroArmLift: Float,
     glint: Float,
+    glasses: GlassesPose?,
+    tSec: Float,
 ) {
     val ax = left + SPRITE_SIZE / 2f * pc
     val cw = pc * scaleX
@@ -549,6 +621,14 @@ private fun DrawScope.drawFigure(
             if (heroArmLift != 0f && x >= 10 && y <= 6) dy -= heroArmLift
 
             if (isEye) {
+                // Fill the eye's own cell with the face colour first. The eye is drawn later
+                // and may be a thin dash or pushed sideways by a squash; whatever part of the
+                // cell it did not cover used to show the background straight through the head.
+                drawRect(
+                    color = look.eyeClosed,
+                    topLeft = Offset(px(x, y) + dx, py(y) + dy),
+                    size = Size(cw + 0.6f, ch + 0.6f),
+                )
                 eyeX += px(x, y) + dx
                 eyeY += py(y) + dy
                 continue
@@ -582,7 +662,8 @@ private fun DrawScope.drawFigure(
         }
     }
 
-    if (eyeX.isNotEmpty()) {
+    // Behind glasses the eyes are not drawn at all; the cell fill above keeps the face whole.
+    if (eyeX.isNotEmpty() && glasses?.onFace != true) {
         for (i in eyeX.indices) {
             val side = if (i < eyeX.size / 2) -1f else 1f
             val ex = eyeX[i] + side * eyeSpread
@@ -606,6 +687,122 @@ private fun DrawScope.drawFigure(
                 size = Size(cw * 0.6f, ch * 0.6f),
             )
         }
+    }
+
+    // ---- the glasses gag ----
+    val g = glasses ?: return
+    val eyes = look.eyes ?: return
+    val style = look.glasses ?: return
+    val row = eyes.row
+    val r = row.toFloat()
+    val lc = eyes.leftX
+    val rc = eyes.rightX
+
+    // Sprite-space point to screen, picking up the row offsets so the arm follows the body.
+    fun sx(x: Float, y: Float): Float {
+        val ri = y.roundToInt().coerceIn(0, SPRITE_SIZE - 1)
+        return ax + (x - SPRITE_SIZE / 2f) * cw + rowDx[ri]
+    }
+    fun sy(y: Float): Float {
+        val ri = y.roundToInt().coerceIn(0, SPRITE_SIZE - 1)
+        return bottom + (y - SPRITE_SIZE) * ch + rowDy[ri]
+    }
+
+    // The free hand travels from the hip on the side away from the instrument to just
+    // beside the left lens, where it holds the temple.
+    val hipRow = look.rows.getOrNull(10) ?: ""
+    val restX = (hipRow.indexOfFirst { it != '.' }.takeIf { it >= 0 } ?: 3) - 0.4f
+    val restY = 10.2f
+    val faceX = lc - 1.7f
+    val faceY = r + 0.1f
+    val hx = restX + (faceX - restX) * g.handT
+    val hy = restY + (faceY - restY) * g.handT
+
+    // On the face, or riding in the hand while going on and coming off.
+    val gdx = if (g.carried) hx - faceX else 0f
+    val gdy = if (g.carried) hy - faceY else 0f
+    val gx0 = ax + rowDx[row]
+    val gy0 = bottom + rowDy[row]
+    fun gRect(x0: Float, y0: Float, x1: Float, y1: Float, c: Color) {
+        drawRect(
+            color = c.copy(alpha = c.alpha * g.alpha),
+            topLeft = Offset(
+                gx0 + (x0 + gdx - SPRITE_SIZE / 2f) * cw,
+                gy0 + (y0 + gdy - SPRITE_SIZE) * ch,
+            ),
+            size = Size((x1 - x0) * cw, (y1 - y0) * ch),
+        )
+    }
+
+    when (style) {
+        GlassesStyle.AVIATOR -> {
+            val gold = Color(0xFFE8C15A)
+            val lens = Color(0xFF462D14)
+            for (c in floatArrayOf(lc, rc)) {
+                gRect(c - 1.2f, r - 0.3f, c + 1.2f, r + 0.8f, lens)
+                gRect(c - 0.9f, r + 0.8f, c + 0.9f, r + 1.3f, lens)
+            }
+            gRect(lc - 1.3f, r - 0.5f, rc + 1.3f, r - 0.25f, gold)
+            gRect(lc + 1.2f, r + 0.1f, rc - 1.2f, r + 0.3f, gold)
+            gRect(lc - 1.3f, r - 0.3f, lc - 1.1f, r + 0.8f, gold)
+            gRect(rc + 1.1f, r - 0.3f, rc + 1.3f, r + 0.8f, gold)
+        }
+
+        GlassesStyle.SHUTTER -> {
+            val pink = Color(0xFFFF3DA8)
+            val slat = Color(0xFF141418)
+            for (c in floatArrayOf(lc, rc)) {
+                gRect(c - 1.3f, r - 0.4f, c + 1.3f, r + 0.9f, pink)
+                for (k in 0 until 3) {
+                    gRect(c - 1.1f, r - 0.2f + k * 0.38f, c + 1.1f, r - 0.02f + k * 0.38f, slat)
+                }
+            }
+            gRect(lc + 1.3f, r + 0.1f, rc - 1.3f, r + 0.35f, pink)
+        }
+
+        GlassesStyle.ROUND -> {
+            val silver = Color(0xFFC9CCD6)
+            val lens = Color(0xFF9FD3FF)
+            for (c in floatArrayOf(lc, rc)) {
+                gRect(c - 1.0f, r - 0.5f, c + 1.0f, r + 1.1f, silver)
+                gRect(c - 1.2f, r - 0.3f, c + 1.2f, r + 0.9f, silver)
+                gRect(c - 0.8f, r - 0.3f, c + 0.8f, r + 0.9f, lens)
+                gRect(c - 0.2f, r - 0.2f, c + 0.2f, r + 0.2f, Color.White)
+            }
+            gRect(lc + 1.0f, r + 0.1f, rc - 1.0f, r + 0.3f, silver)
+        }
+
+        GlassesStyle.VISOR -> {
+            val lx = eyes.minX.toFloat()
+            val rx = eyes.maxX.toFloat()
+            gRect(lx - 0.6f, r - 0.2f, rx + 0.6f, r + 0.9f, Color(0xFFE0283A))
+            // A highlight sliding across the visor.
+            val gp = (tSec * 0.8f) % 1f
+            val gs = lx - 0.6f + (rx - lx - 0.2f) * gp
+            gRect(gs, r + 0.05f, gs + 1.4f, r + 0.35f, Color(0xFFFFA0A0))
+        }
+    }
+
+    // Arm and hand in front of the glasses, so the hand visibly holds them.
+    if (g.handT > 0.02f) {
+        val shoulderRow = look.rows.getOrNull(8) ?: ""
+        val shoulderX = (shoulderRow.indexOfFirst { it != '.' }.takeIf { it >= 0 } ?: 4) + 0.2f
+        val shoulderY = 8.4f
+        for (k in 1..3) {
+            val t = k / 4f
+            val armX = shoulderX + (hx - shoulderX) * t
+            val armY = shoulderY + (hy - shoulderY) * t
+            drawRect(
+                color = look.jacket,
+                topLeft = Offset(sx(armX, armY), sy(armY)),
+                size = Size(cw * 1.1f, ch * 1.1f),
+            )
+        }
+        drawRect(
+            color = look.hand,
+            topLeft = Offset(sx(hx, hy), sy(hy)),
+            size = Size(cw * 1.4f, ch * 1.4f),
+        )
     }
 }
 

@@ -55,7 +55,17 @@ object LibraryStore {
         val root = folderUri(context)?.let { DocumentFile.fromTreeUri(context, it) } ?: return emptyList()
         val out = ArrayList<LibraryTrack>()
         fun walk(dir: DocumentFile) {
-            for (child in dir.listFiles()) {
+            val children = dir.listFiles()
+            // Lyrics first, so each track can be paired with the .lrc of the same base name
+            // in the same folder — the layout every lyrics tool and player writes.
+            val lyrics = HashMap<String, String>()
+            for (child in children) {
+                val name = child.name ?: continue
+                if (!child.isDirectory && name.endsWith(".lrc", ignoreCase = true)) {
+                    lyrics[name.substringBeforeLast('.').lowercase()] = child.uri.toString()
+                }
+            }
+            for (child in children) {
                 if (child.isDirectory) {
                     walk(child)
                     continue
@@ -69,6 +79,7 @@ object LibraryStore {
                     sizeBytes = child.length(),
                     lastModified = child.lastModified(),
                     mimeType = child.type ?: "audio/*",
+                    lyricsUri = lyrics[name.substringBeforeLast('.').lowercase()],
                 )
             }
         }

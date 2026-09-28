@@ -745,12 +745,12 @@ private fun LibraryTab(
                         else -> "Analysed, no steady tempo found"
                     },
                     selected = track.uri == selected,
-                    // Tapping an analysed row picks it for playback; the checkbox is for
-                    // choosing what to analyse, so the two never fight over one gesture.
-                    onClick = if (cached != null) {
-                        { onSelectTrack(track.uri) }
-                    } else {
-                        null
+                    // The whole row toggles the tick, not just the checkbox. Picking a track
+                    // for playback moved to its own play button, so the two actions no longer
+                    // compete for the same tap.
+                    onClick = {
+                        LibraryState.checked.value =
+                            if (track.uri in checked) checked - track.uri else checked + track.uri
                     },
                     leading = {
                         Checkbox(
@@ -763,8 +763,13 @@ private fun LibraryTab(
                     },
                     trailing = if (cached != null) {
                         {
-                            IconButton(onClick = { onDeleteCache(track.uri) }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Remove cache")
+                            Row {
+                                IconButton(onClick = { onSelectTrack(track.uri) }) {
+                                    Icon(Icons.Filled.PlayArrow, contentDescription = "Play in MMV")
+                                }
+                                IconButton(onClick = { onDeleteCache(track.uri) }) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Remove cache")
+                                }
                             }
                         }
                     } else {

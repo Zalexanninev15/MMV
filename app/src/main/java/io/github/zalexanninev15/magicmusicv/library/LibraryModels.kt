@@ -7,6 +7,8 @@ data class LibraryTrack(
     val sizeBytes: Long,
     val lastModified: Long,
     val mimeType: String,
+    /** A .lrc beside the file with the same base name, if there is one. */
+    val lyricsUri: String? = null,
 )
 
 /**

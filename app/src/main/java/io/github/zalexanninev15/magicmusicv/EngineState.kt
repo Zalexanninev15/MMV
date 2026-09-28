@@ -123,6 +123,15 @@ object EngineState {
     val character = MutableStateFlow(DEFAULTS.character)
     val instrument = MutableStateFlow(DEFAULTS.instrument)
 
+    /**
+     * Whether somebody is singing right now: true or false when synced lyrics are known for
+     * the playing track, null when there is no way to tell. Not persisted.
+     */
+    val vocal = MutableStateFlow<Boolean?>(null)
+
+    /** Increments each time a new lyric line starts. Not persisted. */
+    val lyricLine = MutableStateFlow(0)
+
     /** Latest tap, for the visualiser. Not persisted. */
     val pulse = MutableStateFlow<Pulse?>(null)
 

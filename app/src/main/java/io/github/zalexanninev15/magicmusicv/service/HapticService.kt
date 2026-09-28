@@ -38,6 +38,8 @@ import io.github.zalexanninev15.magicmusicv.haptics.Tap
 import io.github.zalexanninev15.magicmusicv.library.CachedTrack
 import io.github.zalexanninev15.magicmusicv.library.LibraryState
 import io.github.zalexanninev15.magicmusicv.library.LibraryStore
+import io.github.zalexanninev15.magicmusicv.library.SingingTimeline
+import io.github.zalexanninev15.magicmusicv.library.Lyrics
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -364,8 +366,17 @@ class HapticService : Service() {
         return START_STICKY
     }
 
+    private var lyrics: SingingTimeline? = null
+    private var lastLyricLine = -1
+
     /** Arms the cached-timeline state for [cached]. Shared by the built-in player and Namida. */
     private fun loadCached(cached: CachedTrack, frames: List<FluxFrame>) {
+        // Synced lyrics for this file, if its folder has them. Known lyrics make the vocal
+        // state exact; without them it stays null and the visualiser falls back.
+        lyrics = LibraryState.tracks.value.firstOrNull { it.uri == cached.uri }
+            ?.lyricsUri?.let { Lyrics.load(this, it) }
+        lastLyricLine = -1
+        EngineState.vocal.value = if (lyrics != null) false else null
         cachedTrack = cached
         cachedFrames = frames
         cachedCursor = 0
@@ -465,6 +476,13 @@ class HapticService : Service() {
     /** Advances the cached timeline to [posMs], wherever that position came from. */
     private fun cachedTickAt(posMs: Float) {
         val track = cachedTrack ?: return
+        lyrics?.let { l ->
+            // A little ahead of the audio, so a note is already rising as the word lands.
+            val line = l.lineAt(posMs.toLong() + 150L)
+            EngineState.vocal.value = line >= 0
+            if (line >= 0 && line != lastLyricLine) EngineState.lyricLine.value += 1
+            lastLyricLine = line
+        }
         pullLiveSettings()
         val mode = EngineState.mode.value
         val offset = EngineState.offsetMs.value
@@ -560,6 +578,8 @@ class HapticService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         EngineState.running.value = false
+        EngineState.vocal.value = null
+        lyrics = null
         EngineState.bpm.value = 0f
         EngineState.confidence.value = 0f
         EngineState.level.value = 0f

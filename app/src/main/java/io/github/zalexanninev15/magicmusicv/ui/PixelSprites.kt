@@ -50,9 +50,40 @@ class SpriteLook(
     val jacketShade: Color,
     val eye: Color,
     val eyeClosed: Color,
+    /** Sunglasses this character puts on mid-song, or null for none. */
+    val glasses: GlassesStyle? = null,
+    /** Colour of the free hand — skin, or a glove. */
+    val hand: Color = skin,
 ) {
     fun color(ch: Char): Color? = spriteColor(ch, hair, skin, jacket, jacketShade, eye)
+
+    /** Where the eyes sit, measured from the sprite so glasses always land on them. */
+    val eyes: EyeGeometry? by lazy {
+        val pts = ArrayList<Pair<Int, Int>>()
+        for (y in 0..HEAD_LAST_ROW) {
+            val r = rows.getOrNull(y) ?: continue
+            for (x in r.indices) if (r[x] == 'E' || r[x] == '5') pts += x to y
+        }
+        if (pts.isEmpty()) return@lazy null
+        val xs = pts.map { it.first }
+        val mid = (xs.min() + xs.max()) / 2f
+        val left = pts.filter { it.first < mid }
+        val right = pts.filter { it.first > mid }
+        if (left.isEmpty() || right.isEmpty()) return@lazy null
+        EyeGeometry(
+            leftX = left.map { it.first }.average().toFloat() + 0.5f,
+            rightX = right.map { it.first }.average().toFloat() + 0.5f,
+            row = pts.first().second,
+            minX = xs.min(),
+            maxX = xs.max() + 1,
+        )
+    }
 }
+
+class EyeGeometry(val leftX: Float, val rightX: Float, val row: Int, val minX: Int, val maxX: Int)
+
+/** Each character's own sunglasses — different shapes, so the gag reads per character. */
+enum class GlassesStyle { AVIATOR, SHUTTER, ROUND, VISOR }
 
 /**
  * Hero X, who takes over the band at tap milestones.
@@ -102,6 +133,8 @@ enum class PixelCharacter(
     /** Eye colour, and what to paint over the eyes mid-blink. */
     val eye: Color = Color(0xFF14100F),
     val eyeClosed: Color = skin,
+    val glasses: GlassesStyle = GlassesStyle.AVIATOR,
+    val hand: Color = skin,
 ) {
     ROADIE(
         "Roadie",
@@ -130,6 +163,7 @@ enum class PixelCharacter(
     ),
     PUNK(
         "Punk",
+        glasses = GlassesStyle.SHUTTER,
         hair = Color(0xFF3FBF7F),
         skin = Color(0xFFF0C09A),
         jacket = Color(0xFF2E2E38),
@@ -155,6 +189,8 @@ enum class PixelCharacter(
     ),
     BATMETAL(
         "Batmetal",
+        glasses = GlassesStyle.VISOR,
+        hand = Color(0xFF1B1B22),
         hair = Color(0xFF1B1B22),
         skin = Color(0xFFD9A07A),
         jacket = Color(0xFF2A2A33),
@@ -182,6 +218,7 @@ enum class PixelCharacter(
     ),
     METALHEAD(
         "Metalhead",
+        glasses = GlassesStyle.ROUND,
         hair = Color(0xFFE8D48A),
         skin = Color(0xFFE0A882),
         jacket = Color(0xFF6B2A6B),
@@ -209,7 +246,7 @@ enum class PixelCharacter(
     // Entries first, then members, separated by the semicolon above: Kotlin requires that
     // order in an enum body.
     val look: SpriteLook by lazy {
-        SpriteLook(rows, hair, skin, jacket, jacketShade, eye, eyeClosed)
+        SpriteLook(rows, hair, skin, jacket, jacketShade, eye, eyeClosed, glasses, hand)
     }
 }
 
