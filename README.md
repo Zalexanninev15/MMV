@@ -144,7 +144,7 @@ PC games. It's purely cosmetic — nothing it does feeds back into the haptics �
 driven by the same pulses the vibrator gets, so what you see and what you feel line up.
 
 - **Characters** — Roadie, Punk, Metalhead and Batmetal, each with their own palette,
-  hairstyle, and glasses shape.
+  hairstyle, and glasses shape. And Hero X every 1000 taps.
 - **Instruments** — Guitar, Bass, Drums or Keys; the character plays it in sync with the
   beat, two-frame strum/hit animation per hit.
 - **Palettes** — **Standard** (grid glows only inside expanding rings of light that widen
@@ -296,8 +296,6 @@ Tools: JDK 17, Android SDK 36. `gradle-wrapper.jar` isn't committed because it's
 ## Known limits
 
 - Battery cost is real. Continuous LRA driving isn't free.
-- The low band has only ~4 usable FFT bins. A time-domain lowpass envelope follower would
-  track kicks better and is the obvious next improvement.
 - Tempo tracking assumes a roughly steady pulse. Rubato, free time and heavy swing keep
   confidence below the lock threshold; use Onsets mode there.
 - `Vibrator.getCompositionSizeMax()` isn't public API, so batches are capped at 8
@@ -307,6 +305,3 @@ Tools: JDK 17, Android SDK 36. `gradle-wrapper.jar` isn't committed because it's
   and Microphone capture fall back to accent-based notes.
 - "O-Haptics by MMV" is experimental: it's additive by design, never auto-selected, and
   not guaranteed to resolve a working effect on every OPLUS device.
-- None of this has been run through a full release build on real hardware beyond the
-  author's own OnePlus 15 and the CI build checks — treat anything outside that as
-  unverified until confirmed.](https://freedom.mafioznik.xyz/file/hosts)
