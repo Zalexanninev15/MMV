@@ -8,11 +8,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,10 +22,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # The action's default package list is "tools platform-tools". Google retired the
-      # obsolete `tools` package and cmdline-tools 16 no longer serves it, so the default
-      # makes the action itself fail before the build starts. Ask for nothing here and let
-      # the explicit sdkmanager step below install exactly what the build needs.
       - uses: android-actions/setup-android@v3
         with:
           packages: ""
@@ -34,18 +31,10 @@ jobs:
           sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
           yes | sdkmanager --licenses > /dev/null || true
 
-      # No gradle-wrapper.jar is committed (it is a binary blob), so Gradle comes from
-      # the action instead. Run `gradle wrapper` once locally if you want ./gradlew.
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
 
-      # Without this the APK is signed with a debug key the runner generates fresh on every
-      # run, so no two builds share a signature and each one has to be installed over an
-      # uninstall. With it, every build updates the last cleanly.
-      # The presence check runs in the shell, not in an `if:` — the `secrets` context is not
-      # available in step-level conditions. Passing the value through `env` also keeps it out
-      # of the script text, so a password containing quotes or $ cannot break the step.
       - name: Decode keystore
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
@@ -66,55 +55,44 @@ jobs:
         run: gradle --no-daemon assembleRelease
 
       - name: Collect and name APKs
+        shell: bash
         run: |
-          set -eu
+          set -euo pipefail
           mkdir -p out
+
           VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
           SHA="${GITHUB_SHA::7}"
-          for f in app/build/outputs/apk/release/*.apk; do
+
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+
+          if [ ${#apks[@]} -eq 0 ]; then
+            echo "::error::No APK files found."
+            exit 1
+          fi
+
+          for f in "${apks[@]}"; do
             name=$(basename "$f")
-            # app-arm64-v8a-release.apk -> arm64-v8a ; app-universal-release.apk -> universal
             abi=$(echo "$name" | sed -e 's/^app-//' -e 's/-release[^.]*\.apk$//')
             cp "$f" "out/magic-music-v-${VERSION}-${abi}-${SHA}.apk"
           done
-          ls -la out
+
+          ls -lh out
 
       - name: Report signing status
+        env:
+          KEYSTORE_FILE: ${{ env.KEYSTORE_FILE }}
         run: |
           if [ -n "${KEYSTORE_FILE:-}" ]; then
             echo "Signed with the release keystore."
           else
-            echo "::warning::No KEYSTORE_B64 secret set - APKs are debug-signed and their signature changes every run."
+            echo "::warning::No KEYSTORE_B64 secret set - APKs may be debug-signed or unsigned, depending on Gradle configuration."
           fi
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: magic-music-v-apks
           path: out/*.apk
           if-no-files-found: error
-
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: out/*.apk
-          generate_release_notes: true
-
-      # Artifact downloads go through a short-lived Azure SAS link that browsers and
-      # download managers regularly mangle. A release asset is an ordinary URL with none of
-      # that, so every push to main also refreshes one rolling pre-release. The tag is
-      # deliberately not of the form v<number>: the in-app updater only considers numeric
-      # v-tags, so this can never be offered as an update.
-      - name: Refresh rolling build
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ci-latest
-          name: Latest CI build
-          body: |
-            Rolling build from the newest commit on main. Overwritten on every push.
-            Not a release — use the tagged releases for anything you intend to keep.
-
-            Commit ${{ github.sha }}
-          prerelease: true
-          files: out/*.apk
+          retention-days: 1

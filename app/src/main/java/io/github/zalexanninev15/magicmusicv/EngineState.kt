@@ -20,7 +20,6 @@ enum class Mode {
     HYBRID,
 }
 
-/** SYSTEM follows the device setting; all three use Material You dynamic colour. */
 enum class AppTheme { SYSTEM, DARK, LIGHT }
 
 /**
@@ -111,7 +110,7 @@ object EngineState {
     /** The animated pixel band on the Play tab. */
     val showBand = MutableStateFlow(DEFAULTS.showBand)
 
-    /** Fixed video palette, or the app's Material You scheme. */
+    /** Fixed palette or the app's Material You scheme. */
     val bandPalette = MutableStateFlow(DEFAULTS.bandPalette)
 
     /** Squash and stretch, leans, eye expressions and power-chord sparks on the character. */

@@ -2,8 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- Update check against the GitHub Releases API only. -->
+
+    <!-- This is only necessary to check for updates. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -11,7 +13,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Not a Play Store app; on ColorOS/OxygenOS this is the difference between the
+
+    <!-- On ColorOS/OxygenOS this is the difference between the
          engine surviving a screen-off and dying silently after a couple of minutes. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
@@ -38,9 +41,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MagicMusicV">
 
-        <!-- Present natively on OnePlus/realme/OPPO ROMs; required=false so the APK still
-             installs and runs everywhere else. Gives OplusHaptics a chance to resolve
-             com.oplus.os.LinearmotorVibrator / WaveformEffect by reflection. -->
+        <!-- Present natively on OnePlus/realme/OPPO ROMs
+        required=false so the APK still
+        installs and runs everywhere else. Gives OplusHaptics a chance to resolve
+        com.oplus.os.LinearmotorVibrator / WaveformEffect by reflection. -->
         <uses-library
             android:name="oplus"
             android:required="false" />
@@ -60,6 +64,5 @@
             android:name=".service.HapticService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|microphone|mediaPlayback" />
-
     </application>
 </manifest>

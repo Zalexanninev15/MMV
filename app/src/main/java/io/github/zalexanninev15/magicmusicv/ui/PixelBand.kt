@@ -400,7 +400,7 @@ fun PixelBand(
 
             drawNotes(notes, nowNanos, spriteLeft, spriteW, centerY, pc, h, hero)
 
-            // Entrance flash for Hero X; a softer one for power chords.
+            // Entrance flash for Hero X
             val heroAge = (nowNanos - heroStartNanos) / 1_000_000f
             if (hero && heroAge < 300f) {
                 drawRect(Color.White.copy(alpha = 0.7f * (1f - heroAge / 300f)), size = size)
@@ -521,7 +521,7 @@ private fun DrawScope.drawShards(
                 (if (idx % 3 == 0) 1.15f else 0.9f)
             if (r > len) continue
             // 0.17 rad at the base against a 0.52 rad sector leaves black between the
-            // shards; at 0.30 neighbours overlapped and the burst read as a solid wheel.
+            // shards. At 0.30 neighbours overlapped and the burst read as a solid wheel.
             val half = 0.17f * (1f - r / len) + 0.015f
             if (abs(diff) > half) continue
             val color = HERO_NEON[idx % HERO_NEON.size]

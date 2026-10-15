@@ -3,18 +3,17 @@ package io.github.zalexanninev15.magicmusicv.ui
 import androidx.compose.ui.graphics.Color
 
 /**
- * Sprite data for the beat visualiser.
- *
- * Each sprite is 16 rows of 16 characters, one character per pixel, indexing [palette].
- * Kept as text on purpose: a 16x16 grid is legible and editable in the source, and it
- * avoids shipping bitmap assets for something that has to be recoloured per theme anyway.
- *
- * Instruments are separate overlays drawn on the same 16x16 grid as the body, so the two
- * always line up without anchor maths. Each has two frames; the strum alternates on beats.
- */
+* Sprite data for the beat visualizer.
+
+* Each sprite consists of 16 rows of 16 characters, with one character per pixel. The palette is indexed.
+* The text is kept as such on purpose: a 16x16 grid is easy to read and edit in the source code, and it avoids shipping bitmap assets for something that will have to be recoloured depending on the theme anyway.
+
+* Instruments are separate overlays drawn on the same 16x16 grid as the body. This ensures that the two always line up without the need for complex anchor math. Each instrument has two frames.
+* The strum alternates on beats.
+*/
 private const val TRANSPARENT = '.'
 
-/** Shared palette. Characters override hair, skin and jacket. */
+// Shared palette. Characters override hair, skin and jacket.
 fun spriteColor(
     ch: Char,
     hair: Color,
@@ -39,9 +38,8 @@ fun spriteColor(
 }
 
 /**
- * Everything needed to draw one figure. Characters and Hero X both resolve to this, so one
- * drawing routine animates all of them the same way.
- */
+* Everything needed to draw a single figure. Both characters and Hero X are reduced to this, so one drawing routine animates them all in the same way.
+*/
 class SpriteLook(
     val rows: List<String>,
     val hair: Color,
@@ -57,7 +55,7 @@ class SpriteLook(
 ) {
     fun color(ch: Char): Color? = spriteColor(ch, hair, skin, jacket, jacketShade, eye)
 
-    /** Where the eyes sit, measured from the sprite so glasses always land on them. */
+    // Where the eyes sit, measured from the sprite so glasses always land on them.
     val eyes: EyeGeometry? by lazy {
         val pts = ArrayList<Pair<Int, Int>>()
         for (y in 0..HEAD_LAST_ROW) {
@@ -82,16 +80,10 @@ class SpriteLook(
 
 class EyeGeometry(val leftX: Float, val rightX: Float, val row: Int, val minX: Int, val maxX: Int)
 
-/** Each character's own sunglasses — different shapes, so the gag reads per character. */
+// Each character's own sunglasses — different shapes, so the gag reads per character.
 enum class GlassesStyle { AVIATOR, SHUTTER, ROUND, VISOR }
 
-/**
- * Hero X, who takes over the band at tap milestones.
- *
- * Drawn from the reference art: white slicked-back hair, amber glasses, white three-piece
- * suit over a black shirt and dark red tie, a white X at the collar, one arm raised pointing
- * straight up. Not selectable — he only turns up when earned.
- */
+// Hero X cameo
 val HERO_X_LOOK = SpriteLook(
     rows = listOf(
         "...........2....",
@@ -119,7 +111,6 @@ val HERO_X_LOOK = SpriteLook(
     eyeClosed = Color(0xFFF3A63B),
 )
 
-/** Rows 0..7 are the head, 8..12 the torso, 13..15 the legs. Used for per-part animation. */
 const val HEAD_LAST_ROW = 7
 const val LEG_FIRST_ROW = 13
 
@@ -130,7 +121,6 @@ enum class PixelCharacter(
     val jacket: Color,
     val jacketShade: Color,
     val rows: List<String>,
-    /** Eye colour, and what to paint over the eyes mid-blink. */
     val eye: Color = Color(0xFF14100F),
     val eyeClosed: Color = skin,
     val glasses: GlassesStyle = GlassesStyle.AVIATOR,
@@ -243,8 +233,6 @@ enum class PixelCharacter(
         ),
     );
 
-    // Entries first, then members, separated by the semicolon above: Kotlin requires that
-    // order in an enum body.
     val look: SpriteLook by lazy {
         SpriteLook(rows, hair, skin, jacket, jacketShade, eye, eyeClosed, glasses, hand)
     }
@@ -341,29 +329,11 @@ enum class PixelInstrument(
     ),
 }
 
-/**
- * Where the band takes its colours from.
- *
- * VIDEO is the fixed palette sampled out of the reference clip, so the band looks the same
- * on every device regardless of wallpaper or light/dark. THEME derives from the Material You
- * scheme and follows the rest of the app.
- */
-/**
- * How the band draws its waves. Both use the palette sampled from the reference clip.
- *
- * A theme-derived option existed and was removed: Material You schemes are low-contrast by
- * design, and lit cells drawn from them barely separated from the background on any
- * wallpaper tried. The sampled palette reads clearly everywhere.
- */
 enum class BandPalette(val title: String) {
-    /** Grid appears only inside the light; wide waves that widen as they travel. */
-    STANDARD("Standard"),
-
-    /** The first implementation: grid always drawn, narrow fast waves. */
+STANDARD("Standard"),
     CLASSIC("Classic"),
 }
 
-/** Sampled from the reference video: background gradient, and the colour of a lit cell. */
 val STANDARD_DEEP = Color(0xFF27164C)
 val STANDARD_SHALLOW = Color(0xFF4B4162)
 val STANDARD_LIT = Color(0xFFF0EEF4)

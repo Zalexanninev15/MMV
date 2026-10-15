@@ -43,7 +43,7 @@ a track picked straight from your own **Local library**, or whatever is currentl
 |---|---|---|
 | AOSP | any device exposing `arePrimitivesSupported()` | stock `VibrationEffect.Composition` primitives (`CLICK`/`TICK`/`LOW_TICK`/`THUD`) |
 | O-Haptics | OnePlus / realme / OPPO | reflection bridge into `com.oplus.os.LinearmotorVibrator`/`WaveformEffect`, the vendor's own tuned effect library |
-| O-Haptics by MMV *(experimental)* | OnePlus / realme / OPPO | **purely additive** — layers a second, quieter "garnish" effect ~28 ms behind hard hits and accents on top of the normal O-Haptics tap; never replaces it and never auto-selected |
+| O-Haptics by MMV *(experimental)* | OnePlus / realme / OPPO | **purely additive** — layers a second, quieter "garnish" effect ~28 ms behind hard hits and accents on top of the normal O-Haptics tap. |
 
 Backend selection is **detect-first, manual-override-second**: at launch the app probes the
 actual hardware capability (`Vibrator.arePrimitivesSupported()` and reflection checks for the
@@ -59,8 +59,7 @@ by explicitly choosing it in Setup — it is marked experimental and is never ch
 keeps ringing after the pulse ends, and you feel a smear. A composition primitive
 (`PRIMITIVE_CLICK`, `PRIMITIVE_TICK`, `PRIMITIVE_LOW_TICK`, `PRIMITIVE_THUD`) is a
 factory-tuned impulse with braking, which is what makes it read as a *tap*. `minSdk` is
-31 because that is where the capability-probe APIs live; below it the premise degrades
-silently into a buzz.
+31 because that is where the capability-probe APIs live.
 
 ### Why three bands
 
@@ -94,7 +93,7 @@ instead of reporting a false-confident grid and firing endless taps into nothing
 
 Batched taps go to the vibrator service as one composition with per-primitive delays,
 instead of being posted on a `Handler`. App-side timers inherit whole-millisecond
-scheduler jitter, enough to smear a hi-hat pattern; composition delays are applied in the
+scheduler jitter, enough to smear a hi-hat pattern. Composition delays are applied in the
 HAL and hold their spacing while the UI thread is busy. O-Haptics effects add their own
 small, vendor-controlled jitter on top of that — not something this app can remove — which
 is part of why "O-Haptics by MMV" stays additive rather than replacing the base tap.
@@ -113,7 +112,7 @@ is part of why "O-Haptics by MMV" stays additive rather than replacing the base 
 Besides the two live-capture sources, the app can work entirely offline against your own
 files, or quietly follow another player:
 
-- **Local library** — pick a folder once through the system file picker; the app indexes
+- **Local library** — pick a folder once through the system file picker, Magic Music V indexes
   every track in it and analyses each one **offline**, in the background, using 2–4
   parallel workers so a few hundred tracks finish in a reasonable time instead of one at a
   time. Analysed tracks are cached on-device (no re-analysis on replay) and get their own
@@ -145,11 +144,11 @@ driven by the same pulses the vibrator gets, so what you see and what you feel l
 
 - **Characters** — Roadie, Punk, Metalhead and Batmetal, each with their own palette,
   hairstyle, and glasses shape. And Hero X every 1000 taps.
-- **Instruments** — Guitar, Bass, Drums or Keys; the character plays it in sync with the
+- **Instruments** — Guitar, Bass, Drums or Keys. The character plays it in sync with the
   beat, two-frame strum/hit animation per hit.
 - **Palettes** — **Standard** (grid glows only inside expanding rings of light that widen
   as they travel outward from the character) and **Classic** (the original left-sweeping
-  wave look, kept for anyone who prefers it; same colors as Standard).
+  wave look, kept for anyone who prefers it, same colors as Standard).
 - **Enhanced animations**, when turned on, add:
   - occasional sunglasses: the character raises its free hand (the one not holding the
     instrument) and puts on glasses shaped to match its own style, wears them for several
