@@ -14,7 +14,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- On ColorOS/OxygenOS this is the difference between the
+    <!-- On ColorOS / OxygenOS / realmeUI this is the difference between the
          engine surviving a screen-off and dying silently after a couple of minutes. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 

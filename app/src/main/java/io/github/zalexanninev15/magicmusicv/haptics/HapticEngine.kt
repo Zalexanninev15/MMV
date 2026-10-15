@@ -108,8 +108,8 @@ class HapticEngine(context: Context) {
     /** Why [autoBackend] came out the way it did, shown on the setup card. */
     val autoReason: String = when {
         primitivesAvailable -> "$primitiveCount AOSP primitives supported"
-        OplusHaptics.available -> "no AOSP primitives; vendor engine found"
-        else -> "no primitives and no vendor engine; short one-shots only"
+        OplusHaptics.available -> "no AOSP primitives, vendor engine found"
+        else -> "no primitives and no vendor engine"
     }
 
     // Declared after autoBackend on purpose: Kotlin runs property initialisers in source
@@ -156,7 +156,7 @@ class HapticEngine(context: Context) {
      * The AOSP path hands delays to the vibrator service inside one composition and the HAL
      * keeps the spacing. OPLUS has no such call — one effect, fired now — so predicted beats
      * have to be timed here. A dedicated max-priority executor is the closest available
-     * substitute; it costs a millisecond or two of jitter, which is the real price of the
+     * substitute. It costs a millisecond or two of jitter, which is the real price of the
      * vendor backend and is worth knowing about before blaming the beat tracker.
      */
     private val scheduler: ScheduledExecutorService =
@@ -220,7 +220,7 @@ class HapticEngine(context: Context) {
         scheduler.shutdownNow()
     }
 
-    /** Fires one raw OPLUS effect id — used by the effect browser in the UI. */
+    // Fires one raw OPLUS effect id — used by the effect browser in the UI.
     fun previewOplus(effectId: Int, strength: Int) =
         OplusHaptics.vibrate(effectId, strength, bypassSystemScaling)
 
@@ -236,7 +236,7 @@ class HapticEngine(context: Context) {
 
     // ---------------- OPLUS path ----------------
 
-    /** Last fire time per band, for the magic-preset rate limit. Audio thread only. */
+    // Last fire time per band, for the magic-preset rate limit. Audio thread only.
     private val lastFireMs = longArrayOf(0, 0, 0)
 
     private fun playOplus(taps: List<Tap>) {
@@ -296,7 +296,8 @@ class HapticEngine(context: Context) {
      * Fires one band of a preset on its own, at full strength.
      *
      * The per-band test exists because a preset that stays silent gives no clue which of its
-     * three effects the ROM refused; firing them individually narrows it in one tap.
+     * three effects the ROM refused.
+     * Firing them individually narrows it in one tap.
      */
     fun previewMagicBand(presetId: String, band: Int): Boolean {
         val preset = MagicFeedback.byId(presetId) ?: return false

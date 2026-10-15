@@ -45,14 +45,6 @@ android {
         }
     }
 
-    /**
-     * Per-ABI APKs.
-     *
-     * Worth being honest about the size win: this app is almost entirely Kotlin, and the
-     * only native code in it comes from Compose (libandroidx.graphics.path.so), so the
-     * split saves a few hundred KB rather than megabytes. The universal APK is kept as
-     * well, and is the one to hand to anyone who does not know their device's ABI.
-     */
     splits {
         abi {
             isEnable = true
@@ -64,15 +56,9 @@ android {
 
     buildTypes {
         release {
-            // R8 stays off for now. It has never run in CI on this project, and turning it
-            // on in the same change as release signing would make any failure ambiguous.
-            // proguard-rules.pro already carries the keep rules, so this is a one-flag
-            // change once a signed build is confirmed working.
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Falls back to the debug key so the release variant still builds without
-            // secrets — on a fork, or a pull request, where secrets are not available.
             signingConfig = if (canSign) {
                 signingConfigs.getByName("release")
             } else {

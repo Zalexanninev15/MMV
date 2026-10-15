@@ -372,7 +372,7 @@ class HapticService : Service() {
     /** Arms the cached-timeline state for [cached]. Shared by the built-in player and Namida. */
     private fun loadCached(cached: CachedTrack, frames: List<FluxFrame>) {
         // Synced lyrics for this file, if its folder has them. Known lyrics make the vocal
-        // state exact; without them it stays null and the visualiser falls back.
+        // state exact.
         lyrics = LibraryState.tracks.value.firstOrNull { it.uri == cached.uri }
             ?.lyricsUri?.let { Lyrics.load(this, it) }
         lastLyricLine = -1
@@ -635,13 +635,13 @@ class HapticService : Service() {
         private const val NOTIF_ID = 1001
         private const val LOOKAHEAD_MS = 260f
 
-        /** A position change larger than this between polls is a seek, not playback. */
+        // A position change larger than this between polls is a seek, not playback.
         private const val SEEK_JUMP_MS = 1500f
 
-        /** About -56 dBFS. Below this the input is silence, not quiet music. */
+        // About -56 dBFS. Below this the input is silence, not quiet music.
         private const val SILENCE_RMS = 0.0015f
 
-        /** How long it must stay quiet before taps stop, so gaps between notes survive. */
+        // How long it must stay quiet before taps stop, so gaps between notes survive.
         private const val SILENCE_HOLD_MS = 400f
         private const val POLL_MS = 30L
 

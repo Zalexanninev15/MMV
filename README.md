@@ -12,8 +12,11 @@
 ![license](https://img.shields.io/badge/license-MIT-blue)
 [![Donate](https://img.shields.io/badge/Donate-%E2%9D%A4-ff69b4?logo=ko-fi&logoColor=white)](https://z15.neocities.org/donate/pay)
 
-Android app that **taps** the vibration motor in time with whatever music is playing —
-discrete, graded knocks, not a continuous buzz. **Magic Music V** for creating pleasant tactile feedback when playing music and videos (and in the future). It focuses on devices with the best vibration functions. Other devices from different brands are accepted. Perhaps in the future, there will be support not only for Android smartphones, but also for other devices with tactile response or something similar. If I can afford to buy a MacBook Pro M4 Pro/M3 Pro, then I would like to try to implement this on it via the touchpad, if possible, of course, because I have heard that tactile feedback on modern MacBooks has already been implemented. I can't promise anything on the iPhone, because I don't have it at my disposal and I don't plan to buy it, but if you can send it to me for free or test it yourself, I'll do the same, but only after buying the MacBook.
+**Magic Music V** is an Android app that uses the vibration motor to create a tactile experience that matches the music you're listening to. It's not a continuous buzz, but rather a series of discrete and gradually increasing knocks.
+
+The app is designed for devices with the best vibration functions, but it also supports other brands. In the future, it may be available for devices with tactile response or similar features, not just Android smartphones.
+
+As for the iPhone, I can't promise anything because I don't have one and don't plan to buy one. But if you can send it to me for free or test it yourself, I'll do the same, but only after buying the MacBook.
 
 > [!NOTE]
 > **Built for OnePlus and realme first.** Those phones (and their OPPO siblings) ship X-axis linear actuators — the hardware that can actually do what this app is for. Everything else is best-effort. First developed for OnePlus 15, There are plans to test on an old device - the Realme GT Neo 3.
@@ -39,16 +42,16 @@ a track picked straight from your own **Local library**, or whatever is currentl
 
 ### Two backends, plus an experimental third
 
-| backend | where it runs | what it is |
+| Backend | Where it runs | What it is |
 |---|---|---|
-| AOSP | any device exposing `arePrimitivesSupported()` | stock `VibrationEffect.Composition` primitives (`CLICK`/`TICK`/`LOW_TICK`/`THUD`) |
-| O-Haptics | OnePlus / realme / OPPO | reflection bridge into `com.oplus.os.LinearmotorVibrator`/`WaveformEffect`, the vendor's own tuned effect library |
-| O-Haptics by MMV *(experimental)* | OnePlus / realme / OPPO | **purely additive** — layers a second, quieter "garnish" effect ~28 ms behind hard hits and accents on top of the normal O-Haptics tap. |
+| AOSP | Any device that supports `arePrimitivesSupported()` | The stock `VibrationEffect.Composition` primitives, including `CLICK`, `TICK`, `LOW_TICK`, and `THUD`. |
+| O-Haptics | OnePlus, realme, OPPO | A reflection bridge into `com.oplus.os.LinearmotorVibrator`/`WaveformEffect`, the vendor's own tuned effect library. |
+| O-Haptics by MMV *(experimental)* | OnePlus, realme, OPPO | **Purely additive** — adds a second, quieter "garnish" effect about 28 milliseconds after a hard hit or accent on top of the normal O-Haptics tap. |
 
 Backend selection is **detect-first, manual-override-second**: at launch the app probes the
 actual hardware capability (`Vibrator.arePrimitivesSupported()` and reflection checks for the
 OPLUS motor classes) rather than trusting `Build.MANUFACTURER`/`Build.MODEL` strings, because
-those can be wrong — a root-level model spoof, for instance, will say "Samsung" on real
+those can be wrong — a root-level model spoof on real
 OnePlus/realme/OPPO hardware. Auto picks AOSP whenever primitives are supported, otherwise
 O-Haptics if it resolves, otherwise falls back to AOSP. "O-Haptics by MMV" is reachable only
 by explicitly choosing it in Setup — it is marked experimental and is never chosen by Auto.
@@ -133,57 +136,7 @@ files, or quietly follow another player:
 > flac equalizer is worth it on its own merits, not just for the integration. Just a piece
 > of candy!
 
----
-
-## The pixel band — visualizer and characters
-
-Setup lets you turn on a small animated pixel-art character that lives next to the beat
-meter and reacts to the music live, inspired by the pixel rock-band look of classic
-PC games. It's purely cosmetic — nothing it does feeds back into the haptics — but it is
-driven by the same pulses the vibrator gets, so what you see and what you feel line up.
-
-- **Characters** — Roadie, Punk, Metalhead and Batmetal, each with their own palette,
-  hairstyle, and glasses shape. And Hero X every 1000 taps.
-- **Instruments** — Guitar, Bass, Drums or Keys. The character plays it in sync with the
-  beat, two-frame strum/hit animation per hit.
-- **Palettes** — **Standard** (grid glows only inside expanding rings of light that widen
-  as they travel outward from the character) and **Classic** (the original left-sweeping
-  wave look, kept for anyone who prefers it, same colors as Standard).
-- **Enhanced animations**, when turned on, add:
-  - occasional sunglasses: the character raises its free hand (the one not holding the
-    instrument) and puts on glasses shaped to match its own style, wears them for several
-    seconds, then takes them off the same way — triggered either by a dense, "shredding"
-    passage or at random on an accent, with a cooldown between occurrences;
-  - **Lyrics-gated musical notes** — in Local library or Namida mode, if a matching
-    `.lrc` file is present, the floating notes only appear while the vocalist is actually
-    singing a line and disappear completely during instrumental stretches, instead of
-    firing on every accent regardless of whether anyone's singing. (This needs an exact
-    playback position to work, so it's only available where that's known — System audio
-    and Microphone capture keep the old accent-based note behaviour, since there's no
-    reliable way to detect "is someone singing right now" from the waveform alone across
-    genres — an actual audio-feature study confirmed that.)
-  - a **Hero X** milestone: an unconditional neon radial burst with glitch-flash lines that
-    always triggers at its moment — no setting to turn it off, it's a fixed part of the
-    experience.
-
----
-
 ## OnePlus / realme notes
-
-These three are the same OPLUS platform underneath, and they need handling AOSP doesn't.
-
-**The system will freeze the app.** A foreground service is not a promise on ColorOS,
-OxygenOS or realme UI. The battery layer suspends apps that aren't whitelisted once the
-screen goes off — no ANR, no log line, no callback, the audio thread just stops being
-scheduled and the taps stop. There's no API to detect it, so the app shows a card with
-two buttons:
-
-- **Unrestrict battery** → the standard `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` dialog.
-- **Auto-start** → the ColorOS auto-start list. That component has moved with nearly every
-  ColorOS release and has no stable action, so `OemSupport` walks a list of known
-  `ComponentName`s newest-first and falls back to the app info page.
-
-Both are needed. One alone is not enough.
 
 **System vibration intensity scales on top of yours.** Settings → Sounds & vibration →
 Vibration intensity multiplies every app's output. If the taps feel weak at 100 %
@@ -223,7 +176,7 @@ predefined `EFFECT_TICK` — so it works, at some fidelity, on non-OnePlus/realm
 
 **System audio** uses `AudioPlaybackCaptureConfiguration` behind the screen-capture
 prompt. Exact and immune to room noise, **but Android only lets it see apps whose capture
-policy allows it.** Local players (Poweramp, AIMP, VLC, Musicolet, Vinyl) are generally
+policy allows it.** Local players are generally
 capturable. Spotify and YouTube Music set `ALLOW_CAPTURE_BY_NONE` and produce silence. No
 permission fixes this — the block is on the playing app's side. At startup, it is
 recommended that you choose not to broadcast the entire screen, but only the application in
@@ -238,19 +191,6 @@ transients — the only thing this app measures.
 because the tap timeline comes from offline analysis of the file itself, not from listening
 to it play.
 
----
-
-## The rest of the app
-
-- **Navigation** — five destinations: Play, Tune, Library, Setup and About, with a
-  centered Start/Stop button. Setup has a switch to show icons only and hide the text
-  labels, if you'd rather the bar stayed compact.
-- **About** — about application, if you triple-tap the version number, you can view diagnostic information (See the information below).
-- **Profiles** — save, export, import and reset full settings snapshots, including the new
-  visualizer and library-related settings, from Setup.
-
----
-
 ## Diagnostics
 
 A capability report (which primitives resolved, which OPLUS effects are available vs.
@@ -262,7 +202,7 @@ see above. It's meant for filing an issue, not for everyday use.
 ## Build
 
 The application is built automatically on every push via GitHub Actions. Each run produces
-per-architecture APKs (`armeabi-v7a`, `arm64-v8a`) plus a universal APK, signed with a
+per-architecture APKs (`armeabi-v7a`, `arm64-v8a`) and a universal APK, signed with a
 release keystore when one is configured in repo secrets, debug-signed otherwise.
 
 Local APK Build:
@@ -273,14 +213,14 @@ gradle wrapper --gradle-version 8.11.1   # once, generates ./gradlew
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Tools: JDK 17, Android SDK 36. `gradle-wrapper.jar` isn't committed because it's a binary.
+Recommended ools for build: JDK 17, Android SDK 36.
 
 ---
 
 ## Tuning notes
 
 > [!NOTE]
-> The current settings that the application sets immediately are the most optimal from the entry-level point of view. However, I recommend that you adjust the audio to your perception of the sound.
+> The current settings that the application sets immediately are the most optimal from the entry-level point of view.
 
 - **Sensitivity** scales the adaptive threshold. ~1.3 for sparse electronic, 1.8–2.2 for
   dense mixes. Too low and taps run together into vibration, which defeats the point.
@@ -289,8 +229,6 @@ Tools: JDK 17, Android SDK 36. `gradle-wrapper.jar` isn't committed because it's
 - Rate limiting is per band (80 / 55 / 40 ms minimum gap). Raise it first if the motor
   starts heating.
 - At startup, it is recommended that you choose not to broadcast the entire screen, but only the application in which the content is being played. This does not exclude accidental events at this stage of development, but it significantly increases the efficiency of the application.
-- The slider detents (above) make it easier to find a division by feel while music is
-  already playing, without having to look at the screen.
 
 ## Known limits
 

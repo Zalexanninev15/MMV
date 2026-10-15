@@ -11,15 +11,9 @@ import android.provider.Settings
 enum class Vendor { ONEPLUS, REALME, OPPO, OTHER }
 
 /**
- * Everything that exists only because ColorOS / OxygenOS / realme UI do not behave like
- * AOSP.
- *
- * On the OPLUS family a foreground service is not a promise. The system's own battery
- * layer freezes apps that are not on the auto-start whitelist once the screen goes off,
- * and it does it without an ANR, a log line or any callback — the audio thread simply
- * stops being scheduled and the taps stop. There is no API to detect it, so the only
- * honest thing the app can do is send the user to the two screens that turn it off.
- */
+* Everything that exists only because ColorOS / OxygenOS / realme UI do not behave like AOSP.
+* On the OPLUS family, a foreground service is not a guarantee. The system's battery layer freezes apps that are not on the auto-start whitelist once the screen goes off. This happens without any ANR, log line, or callback — the audio thread simply stops being scheduled, and taps stop. There is no API to detect this, so the only honest thing the app can do is send the user to the two screens that turn it off.
+*/
 object OemSupport {
 
     val vendor: Vendor = when (Build.MANUFACTURER.lowercase()) {
@@ -33,11 +27,7 @@ object OemSupport {
         }
     }
 
-    /**
-     * Build strings are not trustworthy on a rooted phone — a device can report itself as a
-     * Galaxy while running OxygenOS. Presence of the OPLUS framework classes cannot be
-     * faked by a build.prop edit, so it is checked alongside the manufacturer.
-     */
+    // The build strings on a rooted phone are not reliable. A device can report itself as a Galaxy while running OxygenOS. However, the presence of the OPLUS framework classes cannot be faked by editing the build.prop file. So, it is checked alongside the manufacturer.
     private val oplusFrameworkPresent: Boolean =
         listOf(
             "com.oplus.os.LinearmotorVibrator",
@@ -50,8 +40,7 @@ object OemSupport {
 
     val deviceLabel: String = buildString {
         append("${Build.MANUFACTURER} ${Build.MODEL}")
-        // Spoofing modules rewrite MODEL but rarely the fingerprint, so show both when they
-        // disagree — otherwise a diagnostic report names the wrong phone.
+        // Spoofing modules can alter the model name, but they rarely change the fingerprint. Therefore, it is important to display both the model name and fingerprint in cases where they differ. Otherwise, the diagnostic report might incorrectly identify the phone.
         val fpModel = Build.FINGERPRINT.substringAfter('/', "").substringBefore('/')
         if (fpModel.isNotEmpty() && !fpModel.equals(Build.MODEL, true)) append(" ($fpModel)")
     }
@@ -60,7 +49,6 @@ object OemSupport {
         context.getSystemService(PowerManager::class.java)
             .isIgnoringBatteryOptimizations(context.packageName)
 
-    /** Opens the standard "don't optimise this app" dialog. */
     fun requestBatteryUnrestricted(context: Context): Boolean {
         val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
             .setData(Uri.parse("package:${context.packageName}"))
@@ -69,7 +57,7 @@ object OemSupport {
     }
 
     /**
-     * Opens the ColorOS/OxygenOS auto-start list. The component moved with almost every
+     * Opens the ColorOS / OxygenOS / realme UI auto-start list. The component moved with almost every
      * ColorOS release and there is no stable action for it, so this walks a list of the
      * known ones oldest-last and falls back to the app info page.
      */

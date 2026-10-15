@@ -7,13 +7,6 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * Checks GitHub Releases for a newer build.
- *
- * `HttpURLConnection` rather than an HTTP client dependency: two GET requests against a
- * JSON API do not justify pulling OkHttp and its transitive tree into an app whose APK is
- * otherwise tiny.
- */
 object UpdateChecker {
 
     const val REPO_URL = "https://github.com/Zalexanninev15/MMV"
@@ -21,8 +14,6 @@ object UpdateChecker {
     const val DONATE_URL = "https://z15.neocities.org/donate/pay"
 
     private const val LATEST = "https://api.github.com/repos/Zalexanninev15/MMV/releases/latest"
-    // More than one, because the newest entry may be the rolling CI pre-release, which is
-    // never a candidate. Filtering happens below.
     private const val ALL = "https://api.github.com/repos/Zalexanninev15/MMV/releases?per_page=20"
 
     data class Result(
@@ -33,17 +24,12 @@ object UpdateChecker {
     )
 
     suspend fun check(currentVersion: String): Result = withContext(Dispatchers.IO) {
-        // /releases/latest ignores pre-releases and 404s when every release is one, so fall
-        // back to the full list and take the newest entry.
         val body = fetch(LATEST) ?: fetch(ALL)
         ?: return@withContext Result(error = "Could not reach GitHub")
 
         val release = runCatching {
             if (body.trimStart().startsWith("[")) {
                 val arr = JSONArray(body)
-                // Only tags of the form v<number> are real releases. The CI build publishes
-                // a rolling pre-release under a non-numeric tag, and taking element 0 blindly
-                // would offer that as an update on every check, forever.
                 (0 until arr.length())
                     .map { arr.getJSONObject(it) }
                     .firstOrNull { isReleaseTag(it.optString("tag_name")) }
@@ -59,7 +45,6 @@ object UpdateChecker {
         Result(tag = tag, url = url, newer = isNewer(tag, currentVersion))
     }
 
-    /** A real release tag: "v" followed by a digit, e.g. v0.6 — not "ci-latest". */
     private fun isReleaseTag(tag: String?): Boolean =
         tag != null && tag.length >= 2 && tag[0] == 'v' && tag[1].isDigit()
 
@@ -69,8 +54,7 @@ object UpdateChecker {
             connectTimeout = 10_000
             readTimeout = 10_000
             setRequestProperty("Accept", "application/vnd.github+json")
-            // GitHub rejects requests without one.
-            setRequestProperty("User-Agent", "MagicMusicV")
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36")
         }
         try {
             if (c.responseCode !in 200..299) return null
@@ -80,7 +64,6 @@ object UpdateChecker {
         }
     }.getOrNull()
 
-    /** Tags are `v{version}`, so the leading v is stripped before comparing. */
     internal fun isNewer(tag: String, current: String): Boolean {
         val a = parts(tag)
         val b = parts(current)

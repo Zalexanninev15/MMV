@@ -7,7 +7,6 @@ import kotlin.math.sqrt
  * Windowing + FFT + band-split spectral flux. Stateful across hops (needs the previous
  * frame's magnitudes and a rolling sample buffer) but holds no threshold, gating, or
  * history state — that split is what lets [OnsetThresholder] replay a cached flux track
- * without re-running the FFT.
  *
  * frame = 1024 by default, hop = 256. At 48 kHz that's 21.3 ms / 5.3 ms; at another
  * sample rate (a locally analysed file, say 44.1 kHz) the ratios shift slightly and

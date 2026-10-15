@@ -125,8 +125,8 @@ class MainActivity : ComponentActivity() {
         // grant is persisted, so this needs no re-prompt.
         LibraryState.refresh(this)
 
-        // Built once at startup. Shown in-app and written to a file, because OxygenOS and
-        // ColorOS suppress third-party logcat output unless full logging is enabled in the
+        // Built once at startup. Shown in-app and written to a file, because OxygenOS / ColorOS / realme UI
+        // suppress third-party logcat output unless full logging is enabled in the
         // engineering menu — so logcat is the one place this must not live.
         // Off the main thread: harvesting a few hundred constants, formatting every vendor
         // method signature and writing the file was happening during onCreate, and it showed

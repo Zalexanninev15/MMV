@@ -119,8 +119,7 @@ class TempoTracker(
             }
             acc /= (n - lag)
             // Bias towards 100-140 BPM. Autocorrelation is inherently ambiguous between
-            // a tempo and its half/double; without a prior it flips octave mid-track and
-            // the taps audibly halve or double, which reads as a bug to the user.
+            // a tempo and its half/double
             val period = lag * hopSeconds
             val w = 1f / (1f + 1.4f * abs(ln(period / 0.5f)))
             val score = acc * w
